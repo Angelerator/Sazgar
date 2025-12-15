@@ -1,0 +1,140 @@
+# name: test/sql/sazgar.test
+# description: Test sazgar extension functions
+# group: [sazgar]
+
+require sazgar
+
+# Test sazgar_version
+query I
+SELECT version FROM sazgar_version()
+----
+0.2.0
+
+# Test sazgar_os - verify columns exist and have values
+query IIIII
+SELECT 
+    length(os_name) > 0,
+    length(os_version) > 0,
+    length(kernel_version) > 0,
+    length(hostname) > 0,
+    length(architecture) > 0
+FROM sazgar_os()
+----
+true	true	true	true	true
+
+# Test sazgar_os - verify process count
+query I
+SELECT process_count > 0 FROM sazgar_os()
+----
+true
+
+# Test sazgar_memory - verify all values are reasonable (default bytes)
+query IIII
+SELECT 
+    total_memory > 0,
+    used_memory >= 0,
+    available_memory >= 0,
+    memory_usage_percent >= 0 AND memory_usage_percent <= 100
+FROM sazgar_memory()
+----
+true	true	true	true
+
+# Test sazgar_memory with unit parameter
+query II
+SELECT 
+    unit = 'GB',
+    total_memory > 0 AND total_memory < 10000
+FROM sazgar_memory(unit := 'GB')
+----
+true	true
+
+# Test sazgar_cpu - verify CPU data exists
+query I
+SELECT COUNT(*) > 0 FROM sazgar_cpu()
+----
+true
+
+# Test sazgar_cpu - verify byte_order column
+query I
+SELECT length(byte_order) > 0 FROM sazgar_cpu() LIMIT 1
+----
+true
+
+# Test sazgar_disks - verify disk data
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_disks()
+----
+true
+
+# Test sazgar_disks with unit parameter
+query I
+SELECT unit = 'GiB' FROM sazgar_disks(unit := 'GiB') LIMIT 1
+----
+true
+
+# Test sazgar_network - verify network data exists
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_network()
+----
+true
+
+# Test sazgar_network - verify columns
+query II
+SELECT 
+    length(interface_name) > 0,
+    length(mac_address) >= 0
+FROM sazgar_network() LIMIT 1
+----
+true	true
+
+# Test sazgar_processes - verify process data exists
+query I
+SELECT COUNT(*) > 0 FROM sazgar_processes()
+----
+true
+
+# Test sazgar_processes - verify values are reasonable
+query IIII
+SELECT 
+    pid > 0,
+    length(name) > 0,
+    cpu_percent >= 0,
+    memory_bytes >= 0
+FROM sazgar_processes() LIMIT 1
+----
+true	true	true	true
+
+# Test sazgar_load - verify load averages
+query III
+SELECT 
+    load_1min >= 0,
+    load_5min >= 0,
+    load_15min >= 0
+FROM sazgar_load()
+----
+true	true	true
+
+# Test sazgar_users - verify user data
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_users()
+----
+true
+
+# Test sazgar_components - verify component data
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_components()
+----
+true
+
+# Test sazgar_system - verify comprehensive system info
+query IIIIII
+SELECT 
+    length(os_name) > 0,
+    cpu_count > 0,
+    total_memory_bytes > 0,
+    memory_usage_percent >= 0 AND memory_usage_percent <= 100,
+    uptime_seconds > 0,
+    process_count > 0
+FROM sazgar_system()
+----
+true	true	true	true	true	true

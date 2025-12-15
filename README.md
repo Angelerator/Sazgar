@@ -1,116 +1,681 @@
-# DuckDB Rust extension template
-This is an **experimental** template for Rust based extensions based on the C Extension API of DuckDB. The goal is to
-turn this eventually into a stable basis for pure-Rust DuckDB extensions that can be submitted to the Community extensions
-repository
+# Sazgar - DuckDB System Monitoring Extension
 
-Features:
-- No DuckDB build required
-- No C++ or C code required
-- CI/CD chain preconfigured
-- (Coming soon) Works with community extensions
+**Sazgar** (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension for system resource monitoring. Built in pure Rust, it provides SQL table functions to query CPU, memory, disk, network, processes, and more.
 
-## Cloning
+## Features
 
-Clone the repo with submodules
+- **Cross-Platform**: Works on Linux, macOS, Windows, Android, and iOS
+- **Pure Rust**: No C/C++ dependencies required
+- **Comprehensive Monitoring**: CPU, memory, disk, network, processes, temperatures
+- **Unit Conversion**: Query memory/disk in bytes, KB, MB, GB, TB (both SI and binary)
+- **Real-time Data**: Get live system metrics directly in SQL
 
-```shell
-git clone --recurse-submodules <repo>
-```
-
-## Dependencies
-In principle, these extensions can be compiled with the Rust toolchain alone. However, this template relies on some additional
-tooling to make life a little easier and to be able to share CI/CD infrastructure with extension templates for other languages:
-
-- Python3
-- Python3-venv
-- [Make](https://www.gnu.org/software/make)
-- Git
-
-Installing these dependencies will vary per platform:
-- For Linux, these come generally pre-installed or are available through the distro-specific package manager.
-- For MacOS, [homebrew](https://formulae.brew.sh/).
-- For Windows, [chocolatey](https://community.chocolatey.org/).
-
-## Building
-After installing the dependencies, building is a two-step process. Firstly run:
-```shell
-make configure
-```
-This will ensure a Python venv is set up with DuckDB and DuckDB's test runner installed. Additionally, depending on configuration,
-DuckDB will be used to determine the correct platform for which you are compiling.
-
-Then, to build the extension run:
-```shell
-make debug
-```
-This delegates the build process to cargo, which will produce a shared library in `target/debug/<shared_lib_name>`. After this step,
-a script is run to transform the shared library into a loadable extension by appending a binary footer. The resulting extension is written
-to the `build/debug` directory.
-
-To create optimized release binaries, simply run `make release` instead.
-
-### Running the extension
-To run the extension code, start `duckdb` with `-unsigned` flag. This will allow you to load the local extension file.
-
-```sh
-duckdb -unsigned
-```
-
-After loading the extension by the file path, you can use the functions provided by the extension (in this case, `rusty_quack()`).
+## Quick Start
 
 ```sql
-LOAD './build/debug/extension/rusty_quack/rusty_quack.duckdb_extension';
-SELECT * FROM rusty_quack('Jane');
+-- Load the extension
+LOAD 'sazgar';
+
+-- Get system overview
+SELECT * FROM sazgar_system();
+
+-- Check memory usage in GB
+SELECT * FROM sazgar_memory(unit := 'GB');
+
+-- Find top memory-consuming processes
+SELECT pid, name, memory_bytes, cpu_percent
+FROM sazgar_processes()
+ORDER BY memory_bytes DESC
+LIMIT 10;
 ```
 
-```
-┌─────────────────────┐
-│       column0       │
-│       varchar       │
-├─────────────────────┤
-│ Rusty Quack Jane 🐥 │
-└─────────────────────┘
-```
+## Installation
 
-## Testing
-This extension uses the DuckDB Python client for testing. This should be automatically installed in the `make configure` step.
-The tests themselves are written in the SQLLogicTest format, just like most of DuckDB's tests. A sample test can be found in
-`test/sql/<extension_name>.test`. To run the tests using the *debug* build:
+### From Source
 
-```shell
-make test_debug
+```bash
+# Clone the repository
+git clone --recurse-submodules https://github.com/Angelerator/Sazgar.git
+cd sazgar
+
+# Configure and build
+make configure
+make release
+
+# The extension will be at: build/release/sazgar.duckdb_extension
 ```
 
-or for the *release* build:
-```shell
+### Loading the Extension
+
+```sql
+-- Load with unsigned flag (required for local extensions)
+-- Start DuckDB with: duckdb -unsigned
+
+LOAD '/path/to/sazgar.duckdb_extension';
+```
+
+---
+
+## Functions Reference
+
+### System Overview
+
+#### `sazgar_system()`
+
+Returns a comprehensive system overview in a single row.
+
+```sql
+SELECT * FROM sazgar_system();
+```
+
+**Sample Output:**
+
+```
+┌─────────┬────────────┬──────────────────────┬──────────────┬───────────┬─────────────────────┬──────────────────────────┬──────────────────────────────┬────────────────────┬───────────────────┬──────────────────────┬──────────────────────┬────────────────┬───────────────┐
+│ os_name │ os_version │       hostname       │ architecture │ cpu_count │ physical_core_count │        cpu_brand         │ global_cpu_usage_percent     │ total_memory_bytes │ used_memory_bytes │ available_memory_bytes │ memory_usage_percent │ uptime_seconds │ process_count │
+│ varchar │  varchar   │       varchar        │   varchar    │  uint64   │       uint64        │         varchar          │            float             │       uint64       │      uint64       │        uint64        │        float         │     uint64     │    uint64     │
+├─────────┼────────────┼──────────────────────┼──────────────┼───────────┼─────────────────────┼──────────────────────────┼──────────────────────────────┼────────────────────┼───────────────────┼──────────────────────┼──────────────────────┼────────────────┼───────────────┤
+│ Darwin  │ 14.6.1     │ MacBook-Pro.local    │ arm64        │         8 │                   8 │ Apple M1                 │                        42.5  │       8589934592   │      6771245056   │          1818689536  │                78.8  │        4368630 │           466 │
+└─────────┴────────────┴──────────────────────┴──────────────┴───────────┴─────────────────────┴──────────────────────────┴──────────────────────────────┴────────────────────┴───────────────────┴──────────────────────┴──────────────────────┴────────────────┴───────────────┘
+```
+
+| Column                   | Type    | Description                      |
+| ------------------------ | ------- | -------------------------------- |
+| os_name                  | VARCHAR | Operating system name            |
+| os_version               | VARCHAR | OS version                       |
+| hostname                 | VARCHAR | System hostname                  |
+| architecture             | VARCHAR | CPU architecture (x86_64, arm64) |
+| cpu_count                | UBIGINT | Number of logical CPUs           |
+| physical_core_count      | UBIGINT | Number of physical cores         |
+| cpu_brand                | VARCHAR | CPU brand/model                  |
+| global_cpu_usage_percent | FLOAT   | Overall CPU usage %              |
+| total_memory_bytes       | UBIGINT | Total RAM in bytes               |
+| used_memory_bytes        | UBIGINT | Used RAM in bytes                |
+| available_memory_bytes   | UBIGINT | Available RAM in bytes           |
+| memory_usage_percent     | FLOAT   | Memory usage %                   |
+| uptime_seconds           | UBIGINT | System uptime in seconds         |
+| process_count            | UBIGINT | Number of running processes      |
+
+#### `sazgar_version()`
+
+Returns the extension version.
+
+```sql
+SELECT * FROM sazgar_version();
+```
+
+**Sample Output:**
+
+```
+┌─────────┐
+│ version │
+│ varchar │
+├─────────┤
+│ 0.2.0   │
+└─────────┘
+```
+
+---
+
+### Operating System
+
+#### `sazgar_os()`
+
+Returns detailed operating system information.
+
+```sql
+SELECT * FROM sazgar_os();
+```
+
+**Sample Output:**
+
+```
+┌─────────┬────────────┬────────────────┬──────────────────────┬──────────────┬─────────────────┬────────────────┬────────────┬───────────────┐
+│ os_name │ os_version │ kernel_version │       hostname       │ architecture │ distribution_id │ uptime_seconds │ boot_time  │ process_count │
+│ varchar │  varchar   │    varchar     │       varchar        │   varchar    │     varchar     │     uint64     │   uint64   │    uint64     │
+├─────────┼────────────┼────────────────┼──────────────────────┼──────────────┼─────────────────┼────────────────┼────────────┼───────────────┤
+│ Darwin  │ 14.6.1     │ 23.6.0         │ MacBook-Pro.local    │ arm64        │ macos           │        4368629 │ 1761468497 │           451 │
+└─────────┴────────────┴────────────────┴──────────────────────┴──────────────┴─────────────────┴────────────────┴────────────┴───────────────┘
+```
+
+| Column          | Type    | Description                      |
+| --------------- | ------- | -------------------------------- |
+| os_name         | VARCHAR | OS name (Darwin, Linux, Windows) |
+| os_version      | VARCHAR | OS version string                |
+| kernel_version  | VARCHAR | Kernel version                   |
+| hostname        | VARCHAR | System hostname                  |
+| architecture    | VARCHAR | CPU architecture                 |
+| distribution_id | VARCHAR | Linux distribution ID            |
+| uptime_seconds  | UBIGINT | System uptime                    |
+| boot_time       | UBIGINT | Boot timestamp (Unix epoch)      |
+| process_count   | UBIGINT | Number of processes              |
+
+---
+
+### Memory
+
+#### `sazgar_memory(unit := 'bytes')`
+
+Returns memory and swap usage information.
+
+**Parameters:**
+
+- `unit` (optional): Unit for values. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+
+```sql
+-- Default (bytes)
+SELECT * FROM sazgar_memory();
+
+-- In gigabytes (SI)
+SELECT * FROM sazgar_memory(unit := 'GB');
+
+-- In gibibytes (binary)
+SELECT * FROM sazgar_memory(unit := 'GiB');
+```
+
+**Sample Output (GB):**
+
+```
+┌─────────┬──────────────┬─────────────┬─────────────┬──────────────────┬──────────────────────┬────────────┬───────────┬───────────┬────────────────────┐
+│  unit   │ total_memory │ used_memory │ free_memory │ available_memory │ memory_usage_percent │ total_swap │ used_swap │ free_swap │ swap_usage_percent │
+│ varchar │    double    │   double    │   double    │      double      │        float         │   double   │  double   │  double   │       float        │
+├─────────┼──────────────┼─────────────┼─────────────┼──────────────────┼──────────────────────┼────────────┼───────────┼───────────┼────────────────────┤
+│ GB      │ 8.589934592  │ 6.771245056 │ 0.117440512 │     1.818689536  │                 78.8 │ 8.589934592│ 7.787577344│0.802357248│              90.66 │
+└─────────┴──────────────┴─────────────┴─────────────┴──────────────────┴──────────────────────┴────────────┴───────────┴───────────┴────────────────────┘
+```
+
+| Column               | Type    | Description           |
+| -------------------- | ------- | --------------------- |
+| unit                 | VARCHAR | Unit used for values  |
+| total_memory         | DOUBLE  | Total physical memory |
+| used_memory          | DOUBLE  | Used memory           |
+| free_memory          | DOUBLE  | Free memory           |
+| available_memory     | DOUBLE  | Available memory      |
+| memory_usage_percent | FLOAT   | Memory usage %        |
+| total_swap           | DOUBLE  | Total swap space      |
+| used_swap            | DOUBLE  | Used swap             |
+| free_swap            | DOUBLE  | Free swap             |
+| swap_usage_percent   | FLOAT   | Swap usage %          |
+
+---
+
+### CPU
+
+#### `sazgar_cpu()`
+
+Returns per-core CPU information.
+
+```sql
+SELECT * FROM sazgar_cpu();
+```
+
+**Sample Output:**
+
+```
+┌─────────┬─────────┬───────────────┬───────────────┬──────────┬───────────┬───────────────┐
+│ core_id │  name   │ usage_percent │ frequency_mhz │  brand   │ vendor_id │  byte_order   │
+│ uint64  │ varchar │     float     │    uint64     │ varchar  │  varchar  │    varchar    │
+├─────────┼─────────┼───────────────┼───────────────┼──────────┼───────────┼───────────────┤
+│       0 │ 1       │         47.62 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+│       1 │ 2       │         40.00 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+│       2 │ 3       │         40.91 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+│       3 │ 4       │         30.00 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+│       4 │ 5       │         12.50 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+│       5 │ 6       │         10.00 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+│       6 │ 7       │          8.33 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+│       7 │ 8       │          5.00 │          3204 │ Apple M1 │ Apple     │ Little Endian │
+└─────────┴─────────┴───────────────┴───────────────┴──────────┴───────────┴───────────────┘
+```
+
+| Column        | Type    | Description                           |
+| ------------- | ------- | ------------------------------------- |
+| core_id       | UBIGINT | Core index (0-based)                  |
+| name          | VARCHAR | Core name/identifier                  |
+| usage_percent | FLOAT   | Current CPU usage %                   |
+| frequency_mhz | UBIGINT | Current frequency in MHz              |
+| brand         | VARCHAR | CPU brand string                      |
+| vendor_id     | VARCHAR | CPU vendor (Intel, AMD, Apple)        |
+| byte_order    | VARCHAR | System byte order (Little/Big Endian) |
+
+---
+
+### Disk
+
+#### `sazgar_disks(unit := 'bytes')`
+
+Returns disk/filesystem information. Automatically filters out virtual filesystems.
+
+**Parameters:**
+
+- `unit` (optional): Unit for space values. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+
+```sql
+-- Default (bytes)
+SELECT * FROM sazgar_disks();
+
+-- In terabytes
+SELECT * FROM sazgar_disks(unit := 'TB');
+
+-- Human-readable disk usage
+SELECT
+    name,
+    mount_point,
+    round(used_space, 2) as used_gb,
+    round(total_space, 2) as total_gb,
+    round(usage_percent, 1) as pct
+FROM sazgar_disks(unit := 'GB');
+```
+
+**Sample Output (GB):**
+
+```
+┌──────────────┬──────────────────────┬─────────────┬──────┬─────────────┬─────────────────┬────────────┬───────────────┬──────────────┬─────────┐
+│     name     │     mount_point      │ file_system │ unit │ total_space │ available_space │ used_space │ usage_percent │ is_removable │  kind   │
+│   varchar    │       varchar        │   varchar   │varchar│   double    │     double      │   double   │     float     │   boolean    │ varchar │
+├──────────────┼──────────────────────┼─────────────┼──────┼─────────────┼─────────────────┼────────────┼───────────────┼──────────────┼─────────┤
+│ Macintosh HD │ /                    │ apfs        │ GB   │      228.27 │           15.42 │     212.85 │         93.24 │ false        │ SSD     │
+│ Macintosh HD │ /System/Volumes/Data │ apfs        │ GB   │      228.27 │           15.42 │     212.85 │         93.24 │ false        │ SSD     │
+└──────────────┴──────────────────────┴─────────────┴──────┴─────────────┴─────────────────┴────────────┴───────────────┴──────────────┴─────────┘
+```
+
+| Column          | Type    | Description                        |
+| --------------- | ------- | ---------------------------------- |
+| name            | VARCHAR | Disk/volume name                   |
+| mount_point     | VARCHAR | Mount path                         |
+| file_system     | VARCHAR | Filesystem type (ext4, apfs, ntfs) |
+| unit            | VARCHAR | Unit used for values               |
+| total_space     | DOUBLE  | Total space                        |
+| available_space | DOUBLE  | Available space                    |
+| used_space      | DOUBLE  | Used space                         |
+| usage_percent   | FLOAT   | Usage %                            |
+| is_removable    | BOOLEAN | Is removable media                 |
+| kind            | VARCHAR | Disk type (SSD, HDD, Unknown)      |
+
+---
+
+### Network
+
+#### `sazgar_network()`
+
+Returns network interface information and statistics.
+
+```sql
+SELECT * FROM sazgar_network();
+
+-- Find interfaces with traffic
+SELECT interface_name, rx_bytes, tx_bytes
+FROM sazgar_network()
+WHERE rx_bytes > 0 OR tx_bytes > 0;
+```
+
+**Sample Output:**
+
+```
+┌────────────────┬───────────────────┬────────────┬────────────┬────────────┬────────────┬───────────┬───────────┐
+│ interface_name │    mac_address    │  rx_bytes  │  tx_bytes  │ rx_packets │ tx_packets │ rx_errors │ tx_errors │
+│    varchar     │      varchar      │   uint64   │   uint64   │   uint64   │   uint64   │  uint64   │  uint64   │
+├────────────────┼───────────────────┼────────────┼────────────┼────────────┼────────────┼───────────┼───────────┤
+│ lo0            │ 00:00:00:00:00:00 │ 2499685376 │ 2499685376 │   15234567 │   15234567 │         0 │         0 │
+│ en0            │ aa:bb:cc:dd:ee:ff │ 1516207104 │  234567890 │    9876543 │    1234567 │         0 │         0 │
+│ utun4          │ 00:00:00:00:00:00 │     547840 │     123456 │       4321 │       1234 │         0 │         0 │
+│ awdl0          │ 11:22:33:44:55:66 │   22293504 │    5678901 │     123456 │      56789 │         0 │         0 │
+└────────────────┴───────────────────┴────────────┴────────────┴────────────┴────────────┴───────────┴───────────┘
+```
+
+| Column         | Type    | Description                      |
+| -------------- | ------- | -------------------------------- |
+| interface_name | VARCHAR | Interface name (eth0, en0, etc.) |
+| mac_address    | VARCHAR | MAC address                      |
+| rx_bytes       | UBIGINT | Total bytes received             |
+| tx_bytes       | UBIGINT | Total bytes transmitted          |
+| rx_packets     | UBIGINT | Total packets received           |
+| tx_packets     | UBIGINT | Total packets transmitted        |
+| rx_errors      | UBIGINT | Receive errors                   |
+| tx_errors      | UBIGINT | Transmit errors                  |
+
+---
+
+### Processes
+
+#### `sazgar_processes()`
+
+Returns information about all running processes.
+
+```sql
+SELECT * FROM sazgar_processes();
+
+-- Top 10 CPU consumers
+SELECT pid, name, cpu_percent, status
+FROM sazgar_processes()
+ORDER BY cpu_percent DESC
+LIMIT 10;
+
+-- Find processes using more than 100MB
+SELECT pid, name, memory_bytes / 1e6 as memory_mb
+FROM sazgar_processes()
+WHERE memory_bytes > 100000000
+ORDER BY memory_bytes DESC;
+```
+
+**Sample Output (top 5 by memory):**
+
+```
+┌────────┬─────────────────────────┬─────────────┬──────────────┬────────────────┬──────────┐
+│  pid   │          name           │ cpu_percent │ memory_bytes │ memory_percent │  status  │
+│ uint32 │         varchar         │    float    │    uint64    │     float      │ varchar  │
+├────────┼─────────────────────────┼─────────────┼──────────────┼────────────────┼──────────┤
+│  89588 │ Cursor Helper (Renderer)│         0.0 │    410796032 │           4.78 │ Running  │
+│  59471 │ Google Chrome           │         0.0 │    144490496 │           1.68 │ Running  │
+│  91463 │ Cursor Helper (Plugin)  │         0.0 │    129007616 │           1.50 │ Running  │
+│  89585 │ Cursor Helper (Renderer)│         0.0 │    107659264 │           1.25 │ Running  │
+│  89584 │ Cursor Helper (Renderer)│         0.0 │    107036672 │           1.25 │ Running  │
+└────────┴─────────────────────────┴─────────────┴──────────────┴────────────────┴──────────┘
+```
+
+| Column           | Type     | Description                      |
+| ---------------- | -------- | -------------------------------- |
+| pid              | UINTEGER | Process ID                       |
+| name             | VARCHAR  | Process name                     |
+| exe_path         | VARCHAR  | Executable path                  |
+| status           | VARCHAR  | Status (Running, Sleeping, etc.) |
+| cpu_percent      | FLOAT    | CPU usage %                      |
+| memory_bytes     | UBIGINT  | Memory usage in bytes            |
+| memory_percent   | FLOAT    | Memory usage %                   |
+| start_time       | UBIGINT  | Start timestamp (Unix epoch)     |
+| run_time_seconds | UBIGINT  | Total run time in seconds        |
+| user             | VARCHAR  | User ID running the process      |
+
+---
+
+### Load Average
+
+#### `sazgar_load()`
+
+Returns system load averages (Unix/macOS/Linux). Returns 0 on Windows.
+
+```sql
+SELECT * FROM sazgar_load();
+```
+
+**Sample Output:**
+
+```
+┌──────────────┬───────────────┬───────────────┐
+│  load_1min   │   load_5min   │  load_15min   │
+│    double    │    double     │    double     │
+├──────────────┼───────────────┼───────────────┤
+│ 3.6552734375 │ 3.99658203125 │ 5.27099609375 │
+└──────────────┴───────────────┴───────────────┘
+```
+
+| Column     | Type   | Description            |
+| ---------- | ------ | ---------------------- |
+| load_1min  | DOUBLE | 1-minute load average  |
+| load_5min  | DOUBLE | 5-minute load average  |
+| load_15min | DOUBLE | 15-minute load average |
+
+---
+
+### Users
+
+#### `sazgar_users()`
+
+Returns system users.
+
+```sql
+SELECT * FROM sazgar_users();
+```
+
+**Sample Output:**
+
+```
+┌─────────┬─────────┬──────────────┐
+│   uid   │   gid   │     name     │
+│ varchar │ varchar │   varchar    │
+├─────────┼─────────┼──────────────┤
+│ 501     │ 20      │ john         │
+│ 0       │ 0       │ root         │
+│ 248     │ 248     │ _mbsetupuser │
+└─────────┴─────────┴──────────────┘
+```
+
+| Column | Type    | Description |
+| ------ | ------- | ----------- |
+| uid    | VARCHAR | User ID     |
+| gid    | VARCHAR | Group ID    |
+| name   | VARCHAR | Username    |
+
+---
+
+### Temperature Sensors
+
+#### `sazgar_components()`
+
+Returns hardware temperature sensor readings.
+
+```sql
+SELECT * FROM sazgar_components();
+
+-- Find hottest components
+SELECT label, temperature_celsius
+FROM sazgar_components()
+ORDER BY temperature_celsius DESC
+LIMIT 5;
+```
+
+**Sample Output:**
+
+```
+┌──────────────────────────┬─────────────────────┬─────────────────────────┬──────────────────────────────┐
+│          label           │ temperature_celsius │ max_temperature_celsius │ critical_temperature_celsius │
+│         varchar          │        float        │          float          │            float             │
+├──────────────────────────┼─────────────────────┼─────────────────────────┼──────────────────────────────┤
+│ pACC MTR Temp Sensor0    │              55.81  │                   65.0  │                          0.0 │
+│ pACC MTR Temp Sensor3    │              53.27  │                   62.0  │                          0.0 │
+│ pACC MTR Temp Sensor1    │              52.50  │                   60.0  │                          0.0 │
+│ PMU tdie7                │              50.81  │                   55.0  │                          0.0 │
+│ pACC MTR Temp Sensor2    │              50.59  │                   58.0  │                          0.0 │
+└──────────────────────────┴─────────────────────┴─────────────────────────┴──────────────────────────────┘
+```
+
+| Column                       | Type    | Description         |
+| ---------------------------- | ------- | ------------------- |
+| label                        | VARCHAR | Sensor label        |
+| temperature_celsius          | FLOAT   | Current temperature |
+| max_temperature_celsius      | FLOAT   | Maximum recorded    |
+| critical_temperature_celsius | FLOAT   | Critical threshold  |
+
+---
+
+## Use Cases
+
+### System Health Dashboard
+
+```sql
+-- Create a system health view
+SELECT
+    os_name || ' ' || os_version as os,
+    hostname,
+    cpu_count || ' cores' as cpu,
+    cpu_brand,
+    round(global_cpu_usage_percent, 1) || '%' as cpu_usage,
+    round(total_memory_bytes / 1e9, 1) || ' GB' as total_ram,
+    round(memory_usage_percent, 1) || '%' as ram_usage,
+    (uptime_seconds / 86400) || ' days' as uptime,
+    process_count as processes
+FROM sazgar_system();
+```
+
+### Disk Space Monitoring
+
+```sql
+-- Alert on disks over 80% full
+SELECT name, mount_point,
+       round(usage_percent, 1) as pct_used,
+       round(available_space, 2) as available_gb
+FROM sazgar_disks(unit := 'GB')
+WHERE usage_percent > 80;
+```
+
+### Process Memory Analysis
+
+```sql
+-- Memory usage by process, grouped
+SELECT
+    name,
+    count(*) as instances,
+    round(sum(memory_bytes) / 1e9, 2) as total_gb
+FROM sazgar_processes()
+GROUP BY name
+ORDER BY total_gb DESC
+LIMIT 10;
+```
+
+### Network Traffic Summary
+
+```sql
+SELECT
+    interface_name,
+    round(rx_bytes / 1e9, 2) as rx_gb,
+    round(tx_bytes / 1e9, 2) as tx_gb
+FROM sazgar_network()
+WHERE rx_bytes > 0
+ORDER BY rx_bytes DESC;
+```
+
+---
+
+## Building from Source
+
+### Prerequisites
+
+- Rust toolchain (1.70+)
+- Python 3.8+
+- Make
+- Git
+
+### Build Commands
+
+```bash
+# Configure (creates Python venv, downloads DuckDB)
+make configure
+
+# Debug build
+make debug
+
+# Release build (optimized)
+make release
+
+# Run tests
 make test_release
-```
 
-### Version switching
-Testing with different DuckDB versions is really simple:
+# Clean build artifacts
+make clean
 
-First, run
-```
+# Full clean (including venv)
 make clean_all
 ```
-to ensure the previous `make configure` step is deleted.
 
-Then, run
-```
-DUCKDB_TEST_VERSION=v1.3.2 make configure
-```
-to select a different duckdb version to test with
+### Build Output
 
-Finally, build and test with
+The extension is created at:
+
+- Debug: `build/debug/sazgar.duckdb_extension`
+- Release: `build/release/sazgar.duckdb_extension`
+
+### Cross-Compilation for Mobile
+
+For Android and iOS targets, you'll need the appropriate Rust targets installed:
+
+```bash
+# Android
+rustup target add aarch64-linux-android
+rustup target add armv7-linux-androideabi
+rustup target add x86_64-linux-android
+
+# iOS
+rustup target add aarch64-apple-ios
+rustup target add x86_64-apple-ios
 ```
+
+---
+
+## Platform Support
+
+| Platform | Architecture          | Status             |
+| -------- | --------------------- | ------------------ |
+| Linux    | x86_64                | ✅ Full support    |
+| Linux    | ARM64                 | ✅ Full support    |
+| macOS    | x86_64 (Intel)        | ✅ Full support    |
+| macOS    | ARM64 (Apple Silicon) | ✅ Full support    |
+| Windows  | x86_64                | ✅ Full support    |
+| Windows  | ARM64                 | ✅ Full support    |
+| Android  | ARM64                 | ⚠️ Partial support |
+| Android  | x86_64                | ⚠️ Partial support |
+| iOS      | ARM64                 | ⚠️ Partial support |
+
+### Platform-Specific Notes
+
+| Feature             | Linux | macOS | Windows | Android | iOS |
+| ------------------- | ----- | ----- | ------- | ------- | --- |
+| CPU Info            | ✅    | ✅    | ✅      | ✅      | ⚠️  |
+| Memory Info         | ✅    | ✅    | ✅      | ✅      | ⚠️  |
+| Disk Info           | ✅    | ✅    | ✅      | ⚠️      | ⚠️  |
+| Network Stats       | ✅    | ✅    | ✅      | ✅      | ⚠️  |
+| Processes           | ✅    | ✅    | ✅      | ⚠️      | ❌  |
+| Load Average        | ✅    | ✅    | ❌      | ✅      | ❌  |
+| Temperature Sensors | ✅    | ⚠️    | ⚠️      | ⚠️      | ❌  |
+| Users               | ✅    | ✅    | ✅      | ⚠️      | ⚠️  |
+
+Legend: ✅ Full support | ⚠️ Partial/Limited | ❌ Not available
+
+**Notes:**
+
+- **Android**: Process listing requires root or special permissions. Some features limited by Android security model.
+- **iOS**: Most process-related features unavailable due to iOS sandbox restrictions. Basic system info works.
+- **Windows**: Load averages not available (Windows uses different metrics).
+- **VMs/Containers**: Temperature sensors may not be exposed.
+
+---
+
+## Dependencies
+
+- [sysinfo](https://crates.io/crates/sysinfo) - Cross-platform system information
+- [duckdb-rs](https://crates.io/crates/duckdb) - DuckDB Rust bindings
+
+---
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues and pull requests.
+
+### Development Setup
+
+```bash
+git clone --recurse-submodules https://github.com/Angelerator/Sazgar.git
+cd sazgar
+make configure
 make debug
 make test_debug
 ```
 
-### Known issues
-This is a bit of a footgun, but the extensions produced by this template may (or may not) be broken on windows on python3.11
-with the following error on extension load:
-```shell
-IO Error: Extension '<name>.duckdb_extension' could not be loaded: The specified module could not be found
-```
-This was resolved by using python 3.12
+### Adding New Features
+
+1. Add new `VTab` implementation in `src/lib.rs`
+2. Register the function in `extension_entrypoint`
+3. Add tests in `test/sql/sazgar.test`
+4. Update documentation
+
+---
+
+## License
+
+This project is licensed under the MIT License.
+
+---
+
+## Acknowledgments
+
+- DuckDB team for the excellent extension system
+- The Rust `sysinfo` crate maintainers
+- Contributors and users of this extension
