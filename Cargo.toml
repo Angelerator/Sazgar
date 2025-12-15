@@ -29,7 +29,7 @@ sysinfo = "0.32"
 # For GPU monitoring (NVIDIA)
 nvml-wrapper = { version = "0.10", optional = true }
 # For network port scanning
-netstat2 = "0.9"
+netstat2 = "0.11"
 
 [features]
 default = []
