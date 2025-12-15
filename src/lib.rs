@@ -1172,6 +1172,1019 @@ impl VTab for ComponentsVTab {
 }
 
 // ============================================================================
+// Environment Variables Table Function - sazgar_environment()
+// Returns environment variables
+// ============================================================================
+
+#[repr(C)]
+struct EnvironmentBindData {
+    filter: Option<String>,
+}
+
+struct EnvVar {
+    name: String,
+    value: String,
+}
+
+#[repr(C)]
+struct EnvironmentInitData {
+    current_idx: AtomicUsize,
+    env_count: usize,
+    env_data: Vec<EnvVar>,
+}
+
+struct EnvironmentVTab;
+
+impl VTab for EnvironmentVTab {
+    type InitData = EnvironmentInitData;
+    type BindData = EnvironmentBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("value", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        
+        let filter = if bind.get_parameter_count() > 0 {
+            let param = bind.get_parameter(0).to_string();
+            let cleaned = param.trim_matches('"').to_string();
+            if cleaned.is_empty() { None } else { Some(cleaned) }
+        } else {
+            None
+        };
+        
+        Ok(EnvironmentBindData { filter })
+    }
+
+    fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let bind_data = init.get_bind_data::<EnvironmentBindData>();
+        let filter = unsafe { (*bind_data).filter.clone() };
+        
+        let env_data: Vec<EnvVar> = std::env::vars()
+            .filter(|(name, _)| {
+                match &filter {
+                    Some(f) => name.to_lowercase().contains(&f.to_lowercase()),
+                    None => true,
+                }
+            })
+            .map(|(name, value)| EnvVar { name, value })
+            .collect();
+        
+        let env_count = env_data.len();
+        
+        Ok(EnvironmentInitData {
+            current_idx: AtomicUsize::new(0),
+            env_count,
+            env_data,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        let current = init_data.current_idx.load(Ordering::Relaxed);
+        
+        if current >= init_data.env_count {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let batch_size = std::cmp::min(2048, init_data.env_count - current);
+        
+        for i in 0..batch_size {
+            let env = &init_data.env_data[current + i];
+            output.flat_vector(0).insert(i, CString::new(env.name.clone())?);
+            output.flat_vector(1).insert(i, CString::new(env.value.clone())?);
+        }
+        
+        init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
+    }
+}
+
+// ============================================================================
+// Uptime Table Function - sazgar_uptime()
+// Returns system uptime in various formats
+// ============================================================================
+
+#[repr(C)]
+struct UptimeBindData;
+
+#[repr(C)]
+struct UptimeInitData {
+    done: AtomicBool,
+}
+
+struct UptimeVTab;
+
+impl VTab for UptimeVTab {
+    type InitData = UptimeInitData;
+    type BindData = UptimeBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("uptime_seconds", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+        bind.add_result_column("uptime_minutes", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("uptime_hours", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("uptime_days", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("uptime_formatted", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("boot_time_epoch", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+        Ok(UptimeBindData)
+    }
+
+    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        Ok(UptimeInitData {
+            done: AtomicBool::new(false),
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        
+        if init_data.done.swap(true, Ordering::Relaxed) {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let uptime_secs = System::uptime();
+        let uptime_mins = uptime_secs as f64 / 60.0;
+        let uptime_hrs = uptime_secs as f64 / 3600.0;
+        let uptime_days = uptime_secs as f64 / 86400.0;
+        
+        let days = uptime_secs / 86400;
+        let hours = (uptime_secs % 86400) / 3600;
+        let minutes = (uptime_secs % 3600) / 60;
+        let seconds = uptime_secs % 60;
+        let formatted = format!("{}d {}h {}m {}s", days, hours, minutes, seconds);
+        
+        let boot_time = System::boot_time();
+        
+        output.flat_vector(0).as_mut_slice::<i64>()[0] = uptime_secs as i64;
+        output.flat_vector(1).as_mut_slice::<f64>()[0] = uptime_mins;
+        output.flat_vector(2).as_mut_slice::<f64>()[0] = uptime_hrs;
+        output.flat_vector(3).as_mut_slice::<f64>()[0] = uptime_days;
+        output.flat_vector(4).insert(0, CString::new(formatted)?);
+        output.flat_vector(5).as_mut_slice::<i64>()[0] = boot_time as i64;
+        
+        output.set_len(1);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        None
+    }
+}
+
+// ============================================================================
+// Network Ports Table Function - sazgar_ports()
+// Returns open network ports and connections
+// ============================================================================
+
+#[repr(C)]
+struct PortsBindData {
+    protocol_filter: Option<String>,
+}
+
+struct PortInfo {
+    protocol: String,
+    local_address: String,
+    local_port: u16,
+    remote_address: String,
+    remote_port: u16,
+    state: String,
+    pid: Option<u32>,
+    process_name: String,
+}
+
+#[repr(C)]
+struct PortsInitData {
+    current_idx: AtomicUsize,
+    port_count: usize,
+    port_data: Vec<PortInfo>,
+}
+
+struct PortsVTab;
+
+impl VTab for PortsVTab {
+    type InitData = PortsInitData;
+    type BindData = PortsBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("protocol", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("local_address", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("local_port", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("remote_address", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("remote_port", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("state", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("pid", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("process_name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        
+        let protocol_filter = if bind.get_parameter_count() > 0 {
+            let param = bind.get_parameter(0).to_string();
+            let cleaned = param.trim_matches('"').to_uppercase();
+            if cleaned.is_empty() { None } else { Some(cleaned) }
+        } else {
+            None
+        };
+        
+        Ok(PortsBindData { protocol_filter })
+    }
+
+    fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
+        
+        let bind_data = init.get_bind_data::<PortsBindData>();
+        let protocol_filter = unsafe { (*bind_data).protocol_filter.clone() };
+        
+        // Get process info for name lookup
+        let sys = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new())
+        );
+        
+        let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
+        let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
+        
+        let mut port_data: Vec<PortInfo> = Vec::new();
+        
+        if let Ok(sockets) = get_sockets_info(af_flags, proto_flags) {
+            for socket in sockets {
+                let (protocol, local_addr, local_port, remote_addr, remote_port, state) = 
+                    match &socket.protocol_socket_info {
+                        ProtocolSocketInfo::Tcp(tcp) => {
+                            if let Some(ref filter) = protocol_filter {
+                                if filter != "TCP" { continue; }
+                            }
+                            (
+                                "TCP".to_string(),
+                                tcp.local_addr.to_string(),
+                                tcp.local_port,
+                                tcp.remote_addr.to_string(),
+                                tcp.remote_port,
+                                format!("{:?}", tcp.state),
+                            )
+                        }
+                        ProtocolSocketInfo::Udp(udp) => {
+                            if let Some(ref filter) = protocol_filter {
+                                if filter != "UDP" { continue; }
+                            }
+                            (
+                                "UDP".to_string(),
+                                udp.local_addr.to_string(),
+                                udp.local_port,
+                                "".to_string(),
+                                0,
+                                "".to_string(),
+                            )
+                        }
+                    };
+                
+                let pids = &socket.associated_pids;
+                let pid = pids.first().copied();
+                
+                let process_name = pid
+                    .and_then(|p| sys.process(sysinfo::Pid::from_u32(p)))
+                    .map(|proc| proc.name().to_string_lossy().to_string())
+                    .unwrap_or_default();
+                
+                port_data.push(PortInfo {
+                    protocol,
+                    local_address: local_addr,
+                    local_port,
+                    remote_address: remote_addr,
+                    remote_port,
+                    state,
+                    pid,
+                    process_name,
+                });
+            }
+        }
+        
+        let port_count = port_data.len();
+        
+        Ok(PortsInitData {
+            current_idx: AtomicUsize::new(0),
+            port_count,
+            port_data,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        let current = init_data.current_idx.load(Ordering::Relaxed);
+        
+        if current >= init_data.port_count {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let batch_size = std::cmp::min(2048, init_data.port_count - current);
+        
+        for i in 0..batch_size {
+            let port = &init_data.port_data[current + i];
+            
+            output.flat_vector(0).insert(i, CString::new(port.protocol.clone())?);
+            output.flat_vector(1).insert(i, CString::new(port.local_address.clone())?);
+            output.flat_vector(2).as_mut_slice::<i32>()[i] = port.local_port as i32;
+            output.flat_vector(3).insert(i, CString::new(port.remote_address.clone())?);
+            output.flat_vector(4).as_mut_slice::<i32>()[i] = port.remote_port as i32;
+            output.flat_vector(5).insert(i, CString::new(port.state.clone())?);
+            output.flat_vector(6).as_mut_slice::<i32>()[i] = port.pid.unwrap_or(0) as i32;
+            output.flat_vector(7).insert(i, CString::new(port.process_name.clone())?);
+        }
+        
+        init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
+    }
+}
+
+// ============================================================================
+// GPU Table Function - sazgar_gpu() 
+// Returns GPU information (NVIDIA GPUs when feature enabled)
+// ============================================================================
+
+#[repr(C)]
+struct GpuBindData;
+
+struct GpuInfo {
+    index: u32,
+    name: String,
+    driver_version: String,
+    memory_total_mb: u64,
+    memory_used_mb: u64,
+    memory_free_mb: u64,
+    temperature_celsius: Option<u32>,
+    power_usage_watts: Option<u32>,
+    utilization_gpu_percent: Option<u32>,
+    utilization_memory_percent: Option<u32>,
+}
+
+#[repr(C)]
+struct GpuInitData {
+    current_idx: AtomicUsize,
+    gpu_count: usize,
+    gpu_data: Vec<GpuInfo>,
+}
+
+struct GpuVTab;
+
+impl VTab for GpuVTab {
+    type InitData = GpuInitData;
+    type BindData = GpuBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("index", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("driver_version", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("memory_total_mb", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+        bind.add_result_column("memory_used_mb", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+        bind.add_result_column("memory_free_mb", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+        bind.add_result_column("temperature_celsius", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("power_usage_watts", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("utilization_gpu_percent", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("utilization_memory_percent", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        Ok(GpuBindData)
+    }
+
+    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        #[allow(unused_mut)]
+        let mut gpu_data: Vec<GpuInfo> = Vec::new();
+        
+        #[cfg(feature = "nvidia")]
+        {
+            use nvml_wrapper::Nvml;
+            
+            if let Ok(nvml) = Nvml::init() {
+                let driver_version = nvml.sys_driver_version().unwrap_or_else(|_| "unknown".to_string());
+                
+                if let Ok(device_count) = nvml.device_count() {
+                    for idx in 0..device_count {
+                        if let Ok(device) = nvml.device_by_index(idx) {
+                            let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
+                            
+                            let (memory_total_mb, memory_used_mb, memory_free_mb) = 
+                                if let Ok(mem_info) = device.memory_info() {
+                                    (mem_info.total / 1_000_000, mem_info.used / 1_000_000, mem_info.free / 1_000_000)
+                                } else {
+                                    (0, 0, 0)
+                                };
+                            
+                            let temperature_celsius = device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu).ok();
+                            
+                            let power_usage_watts = device.power_usage().ok().map(|mw| mw / 1000);
+                            
+                            let (utilization_gpu_percent, utilization_memory_percent) = 
+                                if let Ok(util) = device.utilization_rates() {
+                                    (Some(util.gpu), Some(util.memory))
+                                } else {
+                                    (None, None)
+                                };
+                            
+                            gpu_data.push(GpuInfo {
+                                index: idx,
+                                name,
+                                driver_version: driver_version.clone(),
+                                memory_total_mb,
+                                memory_used_mb,
+                                memory_free_mb,
+                                temperature_celsius,
+                                power_usage_watts,
+                                utilization_gpu_percent,
+                                utilization_memory_percent,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If no NVIDIA feature or no GPUs found, return empty
+        let gpu_count = gpu_data.len();
+        
+        Ok(GpuInitData {
+            current_idx: AtomicUsize::new(0),
+            gpu_count,
+            gpu_data,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        let current = init_data.current_idx.load(Ordering::Relaxed);
+        
+        if current >= init_data.gpu_count {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let batch_size = std::cmp::min(2048, init_data.gpu_count - current);
+        
+        for i in 0..batch_size {
+            let gpu = &init_data.gpu_data[current + i];
+            
+            output.flat_vector(0).as_mut_slice::<i32>()[i] = gpu.index as i32;
+            output.flat_vector(1).insert(i, CString::new(gpu.name.clone())?);
+            output.flat_vector(2).insert(i, CString::new(gpu.driver_version.clone())?);
+            output.flat_vector(3).as_mut_slice::<i64>()[i] = gpu.memory_total_mb as i64;
+            output.flat_vector(4).as_mut_slice::<i64>()[i] = gpu.memory_used_mb as i64;
+            output.flat_vector(5).as_mut_slice::<i64>()[i] = gpu.memory_free_mb as i64;
+            output.flat_vector(6).as_mut_slice::<i32>()[i] = gpu.temperature_celsius.unwrap_or(0) as i32;
+            output.flat_vector(7).as_mut_slice::<i32>()[i] = gpu.power_usage_watts.unwrap_or(0) as i32;
+            output.flat_vector(8).as_mut_slice::<i32>()[i] = gpu.utilization_gpu_percent.unwrap_or(0) as i32;
+            output.flat_vector(9).as_mut_slice::<i32>()[i] = gpu.utilization_memory_percent.unwrap_or(0) as i32;
+        }
+        
+        init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        None
+    }
+}
+
+// ============================================================================
+// Swap Table Function - sazgar_swap()
+// Returns swap/virtual memory information
+// ============================================================================
+
+#[repr(C)]
+struct SwapBindData {
+    unit: SizeUnit,
+}
+
+#[repr(C)]
+struct SwapInitData {
+    done: AtomicBool,
+    unit: SizeUnit,
+}
+
+struct SwapVTab;
+
+impl VTab for SwapVTab {
+    type InitData = SwapInitData;
+    type BindData = SwapBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("total_swap", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("used_swap", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("free_swap", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("swap_usage_percent", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("unit", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        
+        let unit = if bind.get_parameter_count() > 0 {
+            let param = bind.get_parameter(0).to_string();
+            let unit_str = param.trim_matches('"');
+            SizeUnit::from_str(unit_str).unwrap_or(SizeUnit::Bytes)
+        } else {
+            SizeUnit::Bytes
+        };
+        
+        Ok(SwapBindData { unit })
+    }
+
+    fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let bind_data = init.get_bind_data::<SwapBindData>();
+        let unit = unsafe { (*bind_data).unit };
+        
+        Ok(SwapInitData {
+            done: AtomicBool::new(false),
+            unit,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        
+        if init_data.done.swap(true, Ordering::Relaxed) {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let mut sys = System::new();
+        sys.refresh_memory_specifics(MemoryRefreshKind::new().with_swap());
+        
+        let total_swap = sys.total_swap();
+        let used_swap = sys.used_swap();
+        let free_swap = sys.free_swap();
+        let usage_percent = if total_swap > 0 {
+            (used_swap as f64 / total_swap as f64) * 100.0
+        } else {
+            0.0
+        };
+        
+        let unit = init_data.unit;
+        
+        output.flat_vector(0).as_mut_slice::<f64>()[0] = unit.convert(total_swap);
+        output.flat_vector(1).as_mut_slice::<f64>()[0] = unit.convert(used_swap);
+        output.flat_vector(2).as_mut_slice::<f64>()[0] = unit.convert(free_swap);
+        output.flat_vector(3).as_mut_slice::<f64>()[0] = usage_percent;
+        output.flat_vector(4).insert(0, CString::new(unit.name())?);
+        
+        output.set_len(1);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
+    }
+}
+
+// ============================================================================
+// CPU Cores Table Function - sazgar_cpu_cores()
+// Returns per-core CPU usage information
+// ============================================================================
+
+#[repr(C)]
+struct CpuCoresBindData;
+
+struct CpuCoreInfo {
+    core_id: usize,
+    usage_percent: f32,
+    frequency_mhz: u64,
+    vendor: String,
+    brand: String,
+}
+
+#[repr(C)]
+struct CpuCoresInitData {
+    current_idx: AtomicUsize,
+    core_count: usize,
+    core_data: Vec<CpuCoreInfo>,
+}
+
+struct CpuCoresVTab;
+
+impl VTab for CpuCoresVTab {
+    type InitData = CpuCoresInitData;
+    type BindData = CpuCoresBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("core_id", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("usage_percent", LogicalTypeHandle::from(LogicalTypeId::Float));
+        bind.add_result_column("frequency_mhz", LogicalTypeHandle::from(LogicalTypeId::Bigint));
+        bind.add_result_column("vendor", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("brand", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        Ok(CpuCoresBindData)
+    }
+
+    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let mut sys = System::new();
+        sys.refresh_cpu_specifics(CpuRefreshKind::new().with_cpu_usage().with_frequency());
+        
+        // Need to wait for CPU usage to be calculated
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        sys.refresh_cpu_specifics(CpuRefreshKind::new().with_cpu_usage().with_frequency());
+        
+        let core_data: Vec<CpuCoreInfo> = sys.cpus().iter().enumerate().map(|(idx, cpu)| {
+            CpuCoreInfo {
+                core_id: idx,
+                usage_percent: cpu.cpu_usage(),
+                frequency_mhz: cpu.frequency(),
+                vendor: cpu.vendor_id().to_string(),
+                brand: cpu.brand().to_string(),
+            }
+        }).collect();
+        
+        let core_count = core_data.len();
+        
+        Ok(CpuCoresInitData {
+            current_idx: AtomicUsize::new(0),
+            core_count,
+            core_data,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        let current = init_data.current_idx.load(Ordering::Relaxed);
+        
+        if current >= init_data.core_count {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let batch_size = std::cmp::min(2048, init_data.core_count - current);
+        
+        for i in 0..batch_size {
+            let core = &init_data.core_data[current + i];
+            
+            output.flat_vector(0).as_mut_slice::<i32>()[i] = core.core_id as i32;
+            output.flat_vector(1).as_mut_slice::<f32>()[i] = core.usage_percent;
+            output.flat_vector(2).as_mut_slice::<i64>()[i] = core.frequency_mhz as i64;
+            output.flat_vector(3).insert(i, CString::new(core.vendor.clone())?);
+            output.flat_vector(4).insert(i, CString::new(core.brand.clone())?);
+        }
+        
+        init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        None
+    }
+}
+
+// ============================================================================
+// File Descriptors Table Function - sazgar_fds()
+// Returns open file descriptors for processes (Linux/macOS)
+// ============================================================================
+
+#[repr(C)]
+struct FdsBindData {
+    pid_filter: Option<u32>,
+}
+
+struct FdInfo {
+    pid: u32,
+    process_name: String,
+    fd_count: usize,
+}
+
+#[repr(C)]
+struct FdsInitData {
+    current_idx: AtomicUsize,
+    fd_count: usize,
+    fd_data: Vec<FdInfo>,
+}
+
+struct FdsVTab;
+
+impl VTab for FdsVTab {
+    type InitData = FdsInitData;
+    type BindData = FdsBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("pid", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        bind.add_result_column("process_name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("fd_count", LogicalTypeHandle::from(LogicalTypeId::Integer));
+        
+        let pid_filter = if bind.get_parameter_count() > 0 {
+            let param = bind.get_parameter(0).to_string();
+            let cleaned = param.trim_matches('"');
+            cleaned.parse::<u32>().ok()
+        } else {
+            None
+        };
+        
+        Ok(FdsBindData { pid_filter })
+    }
+
+    fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let bind_data = init.get_bind_data::<FdsBindData>();
+        let pid_filter = unsafe { (*bind_data).pid_filter };
+        
+        let sys = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new())
+        );
+        
+        let fd_data: Vec<FdInfo> = sys.processes()
+            .iter()
+            .filter(|(pid, _)| {
+                match pid_filter {
+                    Some(filter) => pid.as_u32() == filter,
+                    None => true,
+                }
+            })
+            .map(|(pid, proc)| {
+                // Get fd count from /proc/<pid>/fd on Linux
+                #[cfg(target_os = "linux")]
+                let fd_count = std::fs::read_dir(format!("/proc/{}/fd", pid.as_u32()))
+                    .map(|dir| dir.count())
+                    .unwrap_or(0);
+                
+                #[cfg(not(target_os = "linux"))]
+                let fd_count = 0usize;
+                
+                FdInfo {
+                    pid: pid.as_u32(),
+                    process_name: proc.name().to_string_lossy().to_string(),
+                    fd_count,
+                }
+            })
+            .collect();
+        
+        let count = fd_data.len();
+        
+        Ok(FdsInitData {
+            current_idx: AtomicUsize::new(0),
+            fd_count: count,
+            fd_data,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        let current = init_data.current_idx.load(Ordering::Relaxed);
+        
+        if current >= init_data.fd_count {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let batch_size = std::cmp::min(2048, init_data.fd_count - current);
+        
+        for i in 0..batch_size {
+            let fd = &init_data.fd_data[current + i];
+            
+            output.flat_vector(0).as_mut_slice::<i32>()[i] = fd.pid as i32;
+            output.flat_vector(1).insert(i, CString::new(fd.process_name.clone())?);
+            output.flat_vector(2).as_mut_slice::<i32>()[i] = fd.fd_count as i32;
+        }
+        
+        init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        Some(vec![LogicalTypeHandle::from(LogicalTypeId::Integer)])
+    }
+}
+
+// ============================================================================
+// Docker Containers Table Function - sazgar_docker()
+// Returns Docker container information (when Docker is available)
+// ============================================================================
+
+#[repr(C)]
+struct DockerBindData;
+
+struct DockerContainerInfo {
+    id: String,
+    name: String,
+    image: String,
+    status: String,
+    state: String,
+    created: String,
+}
+
+#[repr(C)]
+struct DockerInitData {
+    current_idx: AtomicUsize,
+    container_count: usize,
+    container_data: Vec<DockerContainerInfo>,
+}
+
+struct DockerVTab;
+
+impl VTab for DockerVTab {
+    type InitData = DockerInitData;
+    type BindData = DockerBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("id", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("image", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("status", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("state", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("created", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        Ok(DockerBindData)
+    }
+
+    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let mut container_data: Vec<DockerContainerInfo> = Vec::new();
+        
+        // Try to get Docker containers using docker CLI
+        // This is a simple approach that doesn't require additional dependencies
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            if let Ok(output) = std::process::Command::new("docker")
+                .args(["ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.State}}|{{.CreatedAt}}"])
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 6 {
+                            container_data.push(DockerContainerInfo {
+                                id: parts[0].to_string(),
+                                name: parts[1].to_string(),
+                                image: parts[2].to_string(),
+                                status: parts[3].to_string(),
+                                state: parts[4].to_string(),
+                                created: parts[5].to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        let container_count = container_data.len();
+        
+        Ok(DockerInitData {
+            current_idx: AtomicUsize::new(0),
+            container_count,
+            container_data,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        let current = init_data.current_idx.load(Ordering::Relaxed);
+        
+        if current >= init_data.container_count {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let batch_size = std::cmp::min(2048, init_data.container_count - current);
+        
+        for i in 0..batch_size {
+            let container = &init_data.container_data[current + i];
+            
+            output.flat_vector(0).insert(i, CString::new(container.id.clone())?);
+            output.flat_vector(1).insert(i, CString::new(container.name.clone())?);
+            output.flat_vector(2).insert(i, CString::new(container.image.clone())?);
+            output.flat_vector(3).insert(i, CString::new(container.status.clone())?);
+            output.flat_vector(4).insert(i, CString::new(container.state.clone())?);
+            output.flat_vector(5).insert(i, CString::new(container.created.clone())?);
+        }
+        
+        init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        None
+    }
+}
+
+// ============================================================================
+// Services Table Function - sazgar_services()
+// Returns running system services (platform-specific)
+// ============================================================================
+
+#[repr(C)]
+struct ServicesBindData;
+
+struct ServiceInfo {
+    name: String,
+    status: String,
+    description: String,
+}
+
+#[repr(C)]
+struct ServicesInitData {
+    current_idx: AtomicUsize,
+    service_count: usize,
+    service_data: Vec<ServiceInfo>,
+}
+
+struct ServicesVTab;
+
+impl VTab for ServicesVTab {
+    type InitData = ServicesInitData;
+    type BindData = ServicesBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        bind.add_result_column("name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("status", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("description", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        Ok(ServicesBindData)
+    }
+
+    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let mut service_data: Vec<ServiceInfo> = Vec::new();
+        
+        // macOS: Use launchctl
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(output) = std::process::Command::new("launchctl")
+                .args(["list"])
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines().skip(1) {  // Skip header
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 3 {
+                            service_data.push(ServiceInfo {
+                                name: parts[2].to_string(),
+                                status: if parts[0] == "-" { "inactive".to_string() } else { "running".to_string() },
+                                description: "".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Linux: Use systemctl
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(output) = std::process::Command::new("systemctl")
+                .args(["list-units", "--type=service", "--all", "--no-pager", "--plain"])
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines().skip(1) {  // Skip header
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 4 {
+                            let name = parts[0].trim_end_matches(".service").to_string();
+                            let status = parts[3].to_string();
+                            let description = parts[4..].join(" ");
+                            service_data.push(ServiceInfo {
+                                name,
+                                status,
+                                description,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        let service_count = service_data.len();
+        
+        Ok(ServicesInitData {
+            current_idx: AtomicUsize::new(0),
+            service_count,
+            service_data,
+        })
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        let current = init_data.current_idx.load(Ordering::Relaxed);
+        
+        if current >= init_data.service_count {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        let batch_size = std::cmp::min(2048, init_data.service_count - current);
+        
+        for i in 0..batch_size {
+            let service = &init_data.service_data[current + i];
+            
+            output.flat_vector(0).insert(i, CString::new(service.name.clone())?);
+            output.flat_vector(1).insert(i, CString::new(service.status.clone())?);
+            output.flat_vector(2).insert(i, CString::new(service.description.clone())?);
+        }
+        
+        init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        None
+    }
+}
+
+// ============================================================================
 // Version Table Function - sazgar_version()
 // Returns the extension version
 // ============================================================================
@@ -1259,6 +2272,34 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
     
     con.register_table_function::<VersionVTab>("sazgar_version")
         .expect("Failed to register sazgar_version table function");
+    
+    // New functions in v0.3.0
+    con.register_table_function::<EnvironmentVTab>("sazgar_environment")
+        .expect("Failed to register sazgar_environment table function");
+    
+    con.register_table_function::<UptimeVTab>("sazgar_uptime")
+        .expect("Failed to register sazgar_uptime table function");
+    
+    con.register_table_function::<PortsVTab>("sazgar_ports")
+        .expect("Failed to register sazgar_ports table function");
+    
+    con.register_table_function::<GpuVTab>("sazgar_gpu")
+        .expect("Failed to register sazgar_gpu table function");
+    
+    con.register_table_function::<SwapVTab>("sazgar_swap")
+        .expect("Failed to register sazgar_swap table function");
+    
+    con.register_table_function::<CpuCoresVTab>("sazgar_cpu_cores")
+        .expect("Failed to register sazgar_cpu_cores table function");
+    
+    con.register_table_function::<FdsVTab>("sazgar_fds")
+        .expect("Failed to register sazgar_fds table function");
+    
+    con.register_table_function::<DockerVTab>("sazgar_docker")
+        .expect("Failed to register sazgar_docker table function");
+    
+    con.register_table_function::<ServicesVTab>("sazgar_services")
+        .expect("Failed to register sazgar_services table function");
     
     Ok(())
 }

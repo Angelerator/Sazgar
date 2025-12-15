@@ -8,7 +8,7 @@ require sazgar
 query I
 SELECT version FROM sazgar_version()
 ----
-0.2.0
+0.3.0
 
 # Test sazgar_os - verify columns exist and have values
 query IIIII
@@ -138,3 +138,89 @@ SELECT
 FROM sazgar_system()
 ----
 true	true	true	true	true	true
+
+# Test sazgar_uptime - verify uptime data
+query IIII
+SELECT 
+    uptime_seconds > 0,
+    uptime_minutes > 0,
+    uptime_hours > 0,
+    length(uptime_formatted) > 0
+FROM sazgar_uptime()
+----
+true	true	true	true
+
+# Test sazgar_environment - verify environment data
+query I
+SELECT COUNT(*) > 0 FROM sazgar_environment('')
+----
+true
+
+# Test sazgar_environment - filter test
+query I
+SELECT COUNT(*) > 0 FROM sazgar_environment('PATH')
+----
+true
+
+# Test sazgar_swap - verify swap data
+query III
+SELECT 
+    total_swap >= 0,
+    used_swap >= 0,
+    free_swap >= 0
+FROM sazgar_swap('bytes')
+----
+true	true	true
+
+# Test sazgar_swap with unit
+query I
+SELECT unit = 'GiB' FROM sazgar_swap('GiB')
+----
+true
+
+# Test sazgar_cpu_cores - verify core data
+query I
+SELECT COUNT(*) > 0 FROM sazgar_cpu_cores()
+----
+true
+
+# Test sazgar_cpu_cores - verify columns
+query IIII
+SELECT 
+    core_id >= 0,
+    usage_percent >= 0,
+    frequency_mhz >= 0,
+    length(brand) > 0
+FROM sazgar_cpu_cores() LIMIT 1
+----
+true	true	true	true
+
+# Test sazgar_ports - verify ports data (with filter)
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_ports('')
+----
+true
+
+# Test sazgar_gpu - verify GPU data (may return 0 rows on non-NVIDIA)
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_gpu()
+----
+true
+
+# Test sazgar_docker - verify docker data
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_docker()
+----
+true
+
+# Test sazgar_services - verify services data
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_services()
+----
+true
+
+# Test sazgar_fds - verify fd data
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_fds(0)
+----
+true

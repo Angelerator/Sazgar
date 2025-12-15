@@ -1,6 +1,6 @@
 [package]
 name = "sazgar"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "DuckDB extension for comprehensive system monitoring - CPU, RAM, OS, processes, network, battery, and more"
 authors = ["Angelerator"]
@@ -26,3 +26,11 @@ duckdb = { version = "1.4.3", features = ["vtab-loadable"] }
 duckdb-loadable-macros = "0.1.13"
 libduckdb-sys = { version = "1.4.3", features = ["loadable-extension"] }
 sysinfo = "0.32"
+# For GPU monitoring (NVIDIA)
+nvml-wrapper = { version = "0.10", optional = true }
+# For network port scanning
+netstat2 = "0.9"
+
+[features]
+default = []
+nvidia = ["nvml-wrapper"]

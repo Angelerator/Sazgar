@@ -6,9 +6,34 @@
 
 - **Cross-Platform**: Works on Linux, macOS, Windows, Android, and iOS
 - **Pure Rust**: No C/C++ dependencies required
-- **Comprehensive Monitoring**: CPU, memory, disk, network, processes, temperatures
+- **20 Table Functions**: Comprehensive system monitoring
 - **Unit Conversion**: Query memory/disk in bytes, KB, MB, GB, TB (both SI and binary)
 - **Real-time Data**: Get live system metrics directly in SQL
+
+### Available Functions
+
+| Function               | Description                              |
+| ---------------------- | ---------------------------------------- |
+| `sazgar_system()`      | Comprehensive system overview            |
+| `sazgar_cpu()`         | CPU information                          |
+| `sazgar_cpu_cores()`   | Per-core CPU usage                       |
+| `sazgar_memory(unit)`  | RAM usage with unit conversion           |
+| `sazgar_swap(unit)`    | Swap/virtual memory info                 |
+| `sazgar_os()`          | Operating system details                 |
+| `sazgar_disks(unit)`   | Disk usage information                   |
+| `sazgar_network()`     | Network interface statistics             |
+| `sazgar_ports(filter)` | Open network ports and connections       |
+| `sazgar_processes()`   | Running processes                        |
+| `sazgar_services()`    | System services (systemd/launchctl)      |
+| `sazgar_docker()`      | Docker containers                        |
+| `sazgar_load()`        | System load averages                     |
+| `sazgar_uptime()`      | Detailed uptime information              |
+| `sazgar_users()`       | System users                             |
+| `sazgar_environment()` | Environment variables                    |
+| `sazgar_components()`  | Temperature sensors                      |
+| `sazgar_gpu()`         | NVIDIA GPU info (optional feature)       |
+| `sazgar_fds(pid)`      | File descriptor counts (Linux)           |
+| `sazgar_version()`     | Extension version                        |
 
 ## Quick Start
 
@@ -484,6 +509,301 @@ LIMIT 5;
 | temperature_celsius          | FLOAT   | Current temperature |
 | max_temperature_celsius      | FLOAT   | Maximum recorded    |
 | critical_temperature_celsius | FLOAT   | Critical threshold  |
+
+---
+
+### Environment Variables
+
+#### `sazgar_environment(filter)`
+
+Returns environment variables, optionally filtered by name pattern.
+
+```sql
+-- Get all environment variables
+SELECT * FROM sazgar_environment('');
+
+-- Filter by pattern
+SELECT * FROM sazgar_environment('PATH');
+```
+
+**Sample Output:**
+
+```
+┌──────────┬────────────────────────────────────────────────────────────────────┐
+│   name   │                               value                                │
+│ varchar  │                              varchar                               │
+├──────────┼────────────────────────────────────────────────────────────────────┤
+│ PATH     │ /usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin                       │
+│ INFOPATH │ /opt/homebrew/share/info:                                          │
+└──────────┴────────────────────────────────────────────────────────────────────┘
+```
+
+| Column | Type    | Description        |
+| ------ | ------- | ------------------ |
+| name   | VARCHAR | Variable name      |
+| value  | VARCHAR | Variable value     |
+
+---
+
+### System Uptime
+
+#### `sazgar_uptime()`
+
+Returns detailed system uptime information.
+
+```sql
+SELECT * FROM sazgar_uptime();
+```
+
+**Sample Output:**
+
+```
+┌────────────────┬───────────────────┬──────────────┬─────────────┬──────────────────┬─────────────────┐
+│ uptime_seconds │  uptime_minutes   │ uptime_hours │ uptime_days │ uptime_formatted │ boot_time_epoch │
+│     int64      │      double       │    double    │   double    │     varchar      │      int64      │
+├────────────────┼───────────────────┼──────────────┼─────────────┼──────────────────┼─────────────────┤
+│    4371412     │ 72856.86666666667 │   1214.28    │    50.59    │ 50d 14h 16m 52s  │   1761468497    │
+└────────────────┴───────────────────┴──────────────┴─────────────┴──────────────────┴─────────────────┘
+```
+
+| Column           | Type    | Description                     |
+| ---------------- | ------- | ------------------------------- |
+| uptime_seconds   | BIGINT  | Uptime in seconds               |
+| uptime_minutes   | DOUBLE  | Uptime in minutes               |
+| uptime_hours     | DOUBLE  | Uptime in hours                 |
+| uptime_days      | DOUBLE  | Uptime in days                  |
+| uptime_formatted | VARCHAR | Human-readable format           |
+| boot_time_epoch  | BIGINT  | Boot timestamp (Unix epoch)     |
+
+---
+
+### Swap Memory
+
+#### `sazgar_swap(unit)`
+
+Returns swap/virtual memory information.
+
+```sql
+-- Get swap in GiB
+SELECT * FROM sazgar_swap('GiB');
+```
+
+**Sample Output:**
+
+```
+┌────────────┬──────────────┬──────────────┬────────────────────┬─────────┐
+│ total_swap │  used_swap   │  free_swap   │ swap_usage_percent │  unit   │
+│   double   │    double    │    double    │       double       │ varchar │
+├────────────┼──────────────┼──────────────┼────────────────────┼─────────┤
+│    10.0    │ 9.0205078125 │ 0.9794921875 │    90.205078125    │ GiB     │
+└────────────┴──────────────┴──────────────┴────────────────────┴─────────┘
+```
+
+| Column             | Type    | Description        |
+| ------------------ | ------- | ------------------ |
+| total_swap         | DOUBLE  | Total swap         |
+| used_swap          | DOUBLE  | Used swap          |
+| free_swap          | DOUBLE  | Free swap          |
+| swap_usage_percent | DOUBLE  | Swap usage %       |
+| unit               | VARCHAR | Unit of measurement|
+
+---
+
+### CPU Cores
+
+#### `sazgar_cpu_cores()`
+
+Returns per-core CPU information.
+
+```sql
+SELECT * FROM sazgar_cpu_cores();
+```
+
+**Sample Output:**
+
+```
+┌─────────┬───────────────┬───────────────┬─────────┬──────────┐
+│ core_id │ usage_percent │ frequency_mhz │ vendor  │  brand   │
+│  int32  │     float     │     int64     │ varchar │ varchar  │
+├─────────┼───────────────┼───────────────┼─────────┼──────────┤
+│       0 │          10.0 │          3204 │ Apple   │ Apple M1 │
+│       1 │      9.523809 │          3204 │ Apple   │ Apple M1 │
+│       2 │      9.523809 │          3204 │ Apple   │ Apple M1 │
+│       3 │     23.809525 │          3204 │ Apple   │ Apple M1 │
+│       4 │     14.285715 │          3204 │ Apple   │ Apple M1 │
+└─────────┴───────────────┴───────────────┴─────────┴──────────┘
+```
+
+| Column        | Type    | Description           |
+| ------------- | ------- | --------------------- |
+| core_id       | INTEGER | Core index            |
+| usage_percent | FLOAT   | CPU usage %           |
+| frequency_mhz | BIGINT  | Current frequency     |
+| vendor        | VARCHAR | CPU vendor            |
+| brand         | VARCHAR | CPU brand/model       |
+
+---
+
+### Network Ports
+
+#### `sazgar_ports(protocol_filter)`
+
+Returns open network ports and connections.
+
+```sql
+-- Get all ports
+SELECT * FROM sazgar_ports('');
+
+-- Filter by protocol (TCP or UDP)
+SELECT * FROM sazgar_ports('TCP') WHERE local_port < 1024;
+```
+
+**Sample Output:**
+
+```
+┌──────────┬───────────────┬────────────┬────────────────┬─────────────┬───────────────┬───────┬──────────────────────┐
+│ protocol │ local_address │ local_port │ remote_address │ remote_port │     state     │  pid  │     process_name     │
+│ varchar  │    varchar    │   int32    │    varchar     │    int32    │    varchar    │ int32 │       varchar        │
+├──────────┼───────────────┼────────────┼────────────────┼─────────────┼───────────────┼───────┼──────────────────────┤
+│ TCP      │ 192.168.1.10  │      51379 │ 140.82.112.25  │         443 │ Established   │ 91463 │ Cursor Helper        │
+│ TCP      │ 127.0.0.1     │       8831 │ 0.0.0.0        │           0 │ Listen        │ 91463 │ Cursor Helper        │
+│ UDP      │ 0.0.0.0       │       5353 │                │           0 │               │  1234 │ mDNSResponder        │
+└──────────┴───────────────┴────────────┴────────────────┴─────────────┴───────────────┴───────┴──────────────────────┘
+```
+
+| Column         | Type    | Description           |
+| -------------- | ------- | --------------------- |
+| protocol       | VARCHAR | TCP or UDP            |
+| local_address  | VARCHAR | Local IP address      |
+| local_port     | INTEGER | Local port number     |
+| remote_address | VARCHAR | Remote IP address     |
+| remote_port    | INTEGER | Remote port number    |
+| state          | VARCHAR | Connection state      |
+| pid            | INTEGER | Process ID            |
+| process_name   | VARCHAR | Process name          |
+
+---
+
+### GPU Information
+
+#### `sazgar_gpu()`
+
+Returns NVIDIA GPU information (requires nvidia feature and NVIDIA drivers).
+
+```sql
+SELECT * FROM sazgar_gpu();
+```
+
+**Sample Output (with NVIDIA GPU):**
+
+```
+┌───────┬──────────────────┬────────────────┬─────────────────┬────────────────┬────────────────┬────────────────────┬──────────────────┐
+│ index │       name       │ driver_version │ memory_total_mb │ memory_used_mb │ memory_free_mb │ temperature_celsius│ utilization_%    │
+│ int32 │     varchar      │    varchar     │     int64       │     int64      │     int64      │       int32        │      int32       │
+├───────┼──────────────────┼────────────────┼─────────────────┼────────────────┼────────────────┼────────────────────┼──────────────────┤
+│     0 │ NVIDIA RTX 4090  │ 545.29.06      │           24564 │          12345 │          12219 │                 65 │               45 │
+└───────┴──────────────────┴────────────────┴─────────────────┴────────────────┴────────────────┴────────────────────┴──────────────────┘
+```
+
+| Column                      | Type    | Description              |
+| --------------------------- | ------- | ------------------------ |
+| index                       | INTEGER | GPU index                |
+| name                        | VARCHAR | GPU name                 |
+| driver_version              | VARCHAR | NVIDIA driver version    |
+| memory_total_mb             | BIGINT  | Total VRAM (MB)          |
+| memory_used_mb              | BIGINT  | Used VRAM (MB)           |
+| memory_free_mb              | BIGINT  | Free VRAM (MB)           |
+| temperature_celsius         | INTEGER | GPU temperature          |
+| power_usage_watts           | INTEGER | Power consumption        |
+| utilization_gpu_percent     | INTEGER | GPU utilization %        |
+| utilization_memory_percent  | INTEGER | Memory utilization %     |
+
+---
+
+### Docker Containers
+
+#### `sazgar_docker()`
+
+Returns Docker container information (requires Docker to be running).
+
+```sql
+SELECT * FROM sazgar_docker();
+```
+
+**Sample Output:**
+
+```
+┌──────────────┬─────────────────┬──────────────────┬──────────────────────┬─────────┬─────────────────────────┐
+│      id      │      name       │      image       │        status        │  state  │         created         │
+│   varchar    │     varchar     │     varchar      │       varchar        │ varchar │         varchar         │
+├──────────────┼─────────────────┼──────────────────┼──────────────────────┼─────────┼─────────────────────────┤
+│ abc123def456 │ my-postgres     │ postgres:15      │ Up 3 days            │ running │ 2024-01-15 10:30:00     │
+│ def456ghi789 │ my-redis        │ redis:7-alpine   │ Up 3 days            │ running │ 2024-01-15 10:30:00     │
+└──────────────┴─────────────────┴──────────────────┴──────────────────────┴─────────┴─────────────────────────┘
+```
+
+| Column  | Type    | Description          |
+| ------- | ------- | -------------------- |
+| id      | VARCHAR | Container ID         |
+| name    | VARCHAR | Container name       |
+| image   | VARCHAR | Docker image         |
+| status  | VARCHAR | Container status     |
+| state   | VARCHAR | Container state      |
+| created | VARCHAR | Creation timestamp   |
+
+---
+
+### System Services
+
+#### `sazgar_services()`
+
+Returns running system services (macOS: launchctl, Linux: systemd).
+
+```sql
+SELECT * FROM sazgar_services() WHERE status = 'running' LIMIT 10;
+```
+
+**Sample Output:**
+
+```
+┌──────────────────────────────────┬─────────┬─────────────┐
+│               name               │ status  │ description │
+│             varchar              │ varchar │   varchar   │
+├──────────────────────────────────┼─────────┼─────────────┤
+│ com.apple.Finder                 │ running │             │
+│ com.apple.homed                  │ running │             │
+│ com.apple.bird                   │ running │             │
+│ com.apple.nsurlsessiond          │ running │             │
+└──────────────────────────────────┴─────────┴─────────────┘
+```
+
+| Column      | Type    | Description         |
+| ----------- | ------- | ------------------- |
+| name        | VARCHAR | Service name        |
+| status      | VARCHAR | Service status      |
+| description | VARCHAR | Service description |
+
+---
+
+### File Descriptors
+
+#### `sazgar_fds(pid)`
+
+Returns file descriptor counts per process (Linux only, returns 0 on other platforms).
+
+```sql
+-- Get FD counts for all processes
+SELECT * FROM sazgar_fds(0);
+
+-- Get FD count for specific PID
+SELECT * FROM sazgar_fds(1234);
+```
+
+| Column       | Type    | Description         |
+| ------------ | ------- | ------------------- |
+| pid          | INTEGER | Process ID          |
+| process_name | VARCHAR | Process name        |
+| fd_count     | INTEGER | Open file count     |
 
 ---
 
