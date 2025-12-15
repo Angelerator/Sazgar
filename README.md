@@ -2,6 +2,39 @@
 
 **Sazgar** (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension for system resource monitoring. Built in pure Rust, it provides SQL table functions to query CPU, memory, disk, network, processes, and more.
 
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Functions Reference](#functions-reference)
+  - [sazgar_system()](#sazgar_system)
+  - [sazgar_version()](#sazgar_version)
+  - [sazgar_os()](#sazgar_os)
+  - [sazgar_memory()](#sazgar_memoryunit--bytes)
+  - [sazgar_cpu()](#sazgar_cpu)
+  - [sazgar_disks()](#sazgar_disksunit--bytes)
+  - [sazgar_network()](#sazgar_network)
+  - [sazgar_processes()](#sazgar_processes)
+  - [sazgar_load()](#sazgar_load)
+  - [sazgar_users()](#sazgar_users)
+  - [sazgar_components()](#sazgar_components)
+  - [sazgar_environment()](#sazgar_environmentfilter)
+  - [sazgar_uptime()](#sazgar_uptime)
+  - [sazgar_swap()](#sazgar_swapunit)
+  - [sazgar_cpu_cores()](#sazgar_cpu_cores)
+  - [sazgar_ports()](#sazgar_portsprotocol_filter)
+  - [sazgar_gpu()](#sazgar_gpu)
+  - [sazgar_docker()](#sazgar_docker)
+  - [sazgar_services()](#sazgar_services)
+  - [sazgar_fds()](#sazgar_fdspid)
+- [Use Cases](#use-cases)
+- [Building from Source](#building-from-source)
+- [Platform Support](#platform-support)
+- [Dependencies](#dependencies)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
 
 - **Cross-Platform**: Works on Linux, macOS, Windows, Android, and iOS
