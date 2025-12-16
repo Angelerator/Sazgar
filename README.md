@@ -8,20 +8,20 @@
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Functions Reference](#functions-reference)
-  - [sazgar_system()](#sazgar_system)
+  - [sazgar_system()](#sazgar_systemunit--mb)
   - [sazgar_version()](#sazgar_version)
   - [sazgar_os()](#sazgar_os)
-  - [sazgar_memory()](#sazgar_memoryunit--bytes)
+  - [sazgar_memory()](#sazgar_memoryunit--mb)
   - [sazgar_cpu()](#sazgar_cpu)
-  - [sazgar_disks()](#sazgar_disksunit--bytes)
-  - [sazgar_network()](#sazgar_network)
-  - [sazgar_processes()](#sazgar_processes)
+  - [sazgar_disks()](#sazgar_disksunit--gb)
+  - [sazgar_network()](#sazgar_networkunit--mb)
+  - [sazgar_processes()](#sazgar_processesunit--mb)
   - [sazgar_load()](#sazgar_load)
   - [sazgar_users()](#sazgar_users)
   - [sazgar_components()](#sazgar_components)
   - [sazgar_environment()](#sazgar_environmentfilter)
   - [sazgar_uptime()](#sazgar_uptime)
-  - [sazgar_swap()](#sazgar_swapunit)
+  - [sazgar_swap()](#sazgar_swapunit--gb)
   - [sazgar_cpu_cores()](#sazgar_cpu_cores)
   - [sazgar_ports()](#sazgar_portsprotocol_filter)
   - [sazgar_gpu()](#sazgar_gpu)
@@ -45,18 +45,18 @@
 
 ### Available Functions
 
-| Function               | Description                         |
-| ---------------------- | ----------------------------------- |
-| `sazgar_system()`      | Comprehensive system overview       |
-| `sazgar_cpu()`         | CPU information                     |
-| `sazgar_cpu_cores()`   | Per-core CPU usage                  |
-| `sazgar_memory(unit)`  | RAM usage with unit conversion      |
-| `sazgar_swap(unit)`    | Swap/virtual memory info            |
-| `sazgar_os()`          | Operating system details            |
-| `sazgar_disks(unit)`   | Disk usage information              |
-| `sazgar_network()`     | Network interface statistics        |
-| `sazgar_ports(filter)` | Open network ports and connections  |
-| `sazgar_processes()`   | Running processes                   |
+| Function                | Description                         |
+| ----------------------- | ----------------------------------- |
+| `sazgar_system(unit)`   | Comprehensive system overview       |
+| `sazgar_cpu()`          | CPU information                     |
+| `sazgar_cpu_cores()`    | Per-core CPU usage                  |
+| `sazgar_memory(unit)`   | RAM usage with unit conversion      |
+| `sazgar_swap(unit)`     | Swap/virtual memory info            |
+| `sazgar_os()`           | Operating system details            |
+| `sazgar_disks(unit)`    | Disk usage information              |
+| `sazgar_network(unit)`  | Network interface statistics        |
+| `sazgar_ports(filter)`  | Open network ports and connections  |
+| `sazgar_processes(unit)`| Running processes                   |
 | `sazgar_services()`    | System services (systemd/launchctl) |
 | `sazgar_docker()`      | Docker containers                   |
 | `sazgar_load()`        | System load averages                |
@@ -74,17 +74,22 @@
 -- Load the extension
 LOAD 'sazgar';
 
--- Get system overview
+-- Get system overview (memory in MB by default)
 SELECT * FROM sazgar_system();
 
 -- Check memory usage in GB
 SELECT * FROM sazgar_memory(unit := 'GB');
 
--- Find top memory-consuming processes
-SELECT pid, name, memory_bytes, cpu_percent
+-- Find top memory-consuming processes (memory in MB by default)
+SELECT pid, name, memory, cpu_percent
 FROM sazgar_processes()
-ORDER BY memory_bytes DESC
+ORDER BY memory DESC
 LIMIT 10;
+
+-- Network traffic in GB
+SELECT interface_name, rx, tx, unit
+FROM sazgar_network(unit := 'GB')
+WHERE rx > 0;
 ```
 
 ## Installation
@@ -118,23 +123,31 @@ LOAD '/path/to/sazgar.duckdb_extension';
 
 ### System Overview
 
-#### `sazgar_system()`
+#### `sazgar_system(unit := 'MB')`
 
 Returns a comprehensive system overview in a single row.
 
+**Parameters:**
+
+- `unit` (optional): Unit for memory values. Default: `MB`. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+
 ```sql
+-- Default (MB)
 SELECT * FROM sazgar_system();
+
+-- Memory in GB
+SELECT * FROM sazgar_system(unit := 'GB');
 ```
 
 **Sample Output:**
 
 ```
-┌─────────┬────────────┬──────────────────────┬──────────────┬───────────┬─────────────────────┬──────────────────────────┬──────────────────────────────┬────────────────────┬───────────────────┬──────────────────────┬──────────────────────┬────────────────┬───────────────┐
-│ os_name │ os_version │       hostname       │ architecture │ cpu_count │ physical_core_count │        cpu_brand         │ global_cpu_usage_percent     │ total_memory_bytes │ used_memory_bytes │ available_memory_bytes │ memory_usage_percent │ uptime_seconds │ process_count │
-│ varchar │  varchar   │       varchar        │   varchar    │  uint64   │       uint64        │         varchar          │            float             │       uint64       │      uint64       │        uint64        │        float         │     uint64     │    uint64     │
-├─────────┼────────────┼──────────────────────┼──────────────┼───────────┼─────────────────────┼──────────────────────────┼──────────────────────────────┼────────────────────┼───────────────────┼──────────────────────┼──────────────────────┼────────────────┼───────────────┤
-│ Darwin  │ 14.6.1     │ MacBook-Pro.local    │ arm64        │         8 │                   8 │ Apple M1                 │                        42.5  │       8589934592   │      6771245056   │          1818689536  │                78.8  │        4368630 │           466 │
-└─────────┴────────────┴──────────────────────┴──────────────┴───────────┴─────────────────────┴──────────────────────────┴──────────────────────────────┴────────────────────┴───────────────────┴──────────────────────┴──────────────────────┴────────────────┴───────────────┘
+┌─────────┬────────────┬──────────────────────┬──────────────┬───────────┬─────────────────────┬──────────────────────────┬──────────────────────────────┬──────────────┬─────────────┬──────────────────┬──────────────────────┬────────────────┬───────────────┬─────────┐
+│ os_name │ os_version │       hostname       │ architecture │ cpu_count │ physical_core_count │        cpu_brand         │ global_cpu_usage_percent     │ total_memory │ used_memory │ available_memory │ memory_usage_percent │ uptime_seconds │ process_count │  unit   │
+│ varchar │  varchar   │       varchar        │   varchar    │  uint64   │       uint64        │         varchar          │            float             │    double    │   double    │      double      │        float         │     uint64     │    uint64     │ varchar │
+├─────────┼────────────┼──────────────────────┼──────────────┼───────────┼─────────────────────┼──────────────────────────┼──────────────────────────────┼──────────────┼─────────────┼──────────────────┼──────────────────────┼────────────────┼───────────────┼─────────┤
+│ Darwin  │ 14.6.1     │ MacBook-Pro.local    │ arm64        │         8 │                   8 │ Apple M1                 │                        42.5  │      8192.0  │      6456.0 │           1736.0 │                 78.8 │        4368630 │           466 │ MB      │
+└─────────┴────────────┴──────────────────────┴──────────────┴───────────┴─────────────────────┴──────────────────────────┴──────────────────────────────┴──────────────┴─────────────┴──────────────────┴──────────────────────┴────────────────┴───────────────┴─────────┘
 ```
 
 | Column                   | Type    | Description                      |
@@ -147,12 +160,13 @@ SELECT * FROM sazgar_system();
 | physical_core_count      | UBIGINT | Number of physical cores         |
 | cpu_brand                | VARCHAR | CPU brand/model                  |
 | global_cpu_usage_percent | FLOAT   | Overall CPU usage %              |
-| total_memory_bytes       | UBIGINT | Total RAM in bytes               |
-| used_memory_bytes        | UBIGINT | Used RAM in bytes                |
-| available_memory_bytes   | UBIGINT | Available RAM in bytes           |
+| total_memory             | DOUBLE  | Total RAM in specified unit      |
+| used_memory              | DOUBLE  | Used RAM in specified unit       |
+| available_memory         | DOUBLE  | Available RAM in specified unit  |
 | memory_usage_percent     | FLOAT   | Memory usage %                   |
 | uptime_seconds           | UBIGINT | System uptime in seconds         |
 | process_count            | UBIGINT | Number of running processes      |
+| unit                     | VARCHAR | Unit used for memory values      |
 
 #### `sazgar_version()`
 
@@ -212,16 +226,16 @@ SELECT * FROM sazgar_os();
 
 ### Memory
 
-#### `sazgar_memory(unit := 'bytes')`
+#### `sazgar_memory(unit := 'MB')`
 
 Returns memory and swap usage information.
 
 **Parameters:**
 
-- `unit` (optional): Unit for values. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+- `unit` (optional): Unit for values. Default: `MB`. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
 
 ```sql
--- Default (bytes)
+-- Default (MB)
 SELECT * FROM sazgar_memory();
 
 -- In gigabytes (SI)
@@ -299,16 +313,16 @@ SELECT * FROM sazgar_cpu();
 
 ### Disk
 
-#### `sazgar_disks(unit := 'bytes')`
+#### `sazgar_disks(unit := 'GB')`
 
 Returns disk/filesystem information. Automatically filters out virtual filesystems.
 
 **Parameters:**
 
-- `unit` (optional): Unit for space values. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+- `unit` (optional): Unit for space values. Default: `GB`. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
 
 ```sql
--- Default (bytes)
+-- Default (GB)
 SELECT * FROM sazgar_disks();
 
 -- In terabytes
@@ -318,10 +332,11 @@ SELECT * FROM sazgar_disks(unit := 'TB');
 SELECT
     name,
     mount_point,
-    round(used_space, 2) as used_gb,
-    round(total_space, 2) as total_gb,
-    round(usage_percent, 1) as pct
-FROM sazgar_disks(unit := 'GB');
+    round(used_space, 2) as used,
+    round(total_space, 2) as total,
+    round(usage_percent, 1) as pct,
+    unit
+FROM sazgar_disks();
 ```
 
 **Sample Output (GB):**
@@ -353,53 +368,64 @@ FROM sazgar_disks(unit := 'GB');
 
 ### Network
 
-#### `sazgar_network()`
+#### `sazgar_network(unit := 'MB')`
 
 Returns network interface information and statistics.
 
+**Parameters:**
+
+- `unit` (optional): Unit for rx/tx byte values. Default: `MB`. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+
 ```sql
+-- Default (MB)
 SELECT * FROM sazgar_network();
 
--- Find interfaces with traffic
-SELECT interface_name, rx_bytes, tx_bytes
-FROM sazgar_network()
-WHERE rx_bytes > 0 OR tx_bytes > 0;
+-- Find interfaces with traffic (in GB)
+SELECT interface_name, rx, tx, unit
+FROM sazgar_network(unit := 'GB')
+WHERE rx > 0 OR tx > 0;
 ```
 
 **Sample Output:**
 
 ```
-┌────────────────┬───────────────────┬────────────┬────────────┬────────────┬────────────┬───────────┬───────────┐
-│ interface_name │    mac_address    │  rx_bytes  │  tx_bytes  │ rx_packets │ tx_packets │ rx_errors │ tx_errors │
-│    varchar     │      varchar      │   uint64   │   uint64   │   uint64   │   uint64   │  uint64   │  uint64   │
-├────────────────┼───────────────────┼────────────┼────────────┼────────────┼────────────┼───────────┼───────────┤
-│ lo0            │ 00:00:00:00:00:00 │ 2499685376 │ 2499685376 │   15234567 │   15234567 │         0 │         0 │
-│ en0            │ aa:bb:cc:dd:ee:ff │ 1516207104 │  234567890 │    9876543 │    1234567 │         0 │         0 │
-│ utun4          │ 00:00:00:00:00:00 │     547840 │     123456 │       4321 │       1234 │         0 │         0 │
-│ awdl0          │ 11:22:33:44:55:66 │   22293504 │    5678901 │     123456 │      56789 │         0 │         0 │
-└────────────────┴───────────────────┴────────────┴────────────┴────────────┴────────────┴───────────┴───────────┘
+┌────────────────┬───────────────────┬──────────┬──────────┬────────────┬────────────┬───────────┬───────────┬─────────┐
+│ interface_name │    mac_address    │    rx    │    tx    │ rx_packets │ tx_packets │ rx_errors │ tx_errors │  unit   │
+│    varchar     │      varchar      │  double  │  double  │   uint64   │   uint64   │  uint64   │  uint64   │ varchar │
+├────────────────┼───────────────────┼──────────┼──────────┼────────────┼────────────┼───────────┼───────────┼─────────┤
+│ lo0            │ 00:00:00:00:00:00 │   2499.7 │   2499.7 │   15234567 │   15234567 │         0 │         0 │ MB      │
+│ en0            │ aa:bb:cc:dd:ee:ff │   1516.2 │    234.6 │    9876543 │    1234567 │         0 │         0 │ MB      │
+│ utun4          │ 00:00:00:00:00:00 │      0.5 │      0.1 │       4321 │       1234 │         0 │         0 │ MB      │
+│ awdl0          │ 11:22:33:44:55:66 │     22.3 │      5.7 │     123456 │      56789 │         0 │         0 │ MB      │
+└────────────────┴───────────────────┴──────────┴──────────┴────────────┴────────────┴───────────┴───────────┴─────────┘
 ```
 
-| Column         | Type    | Description                      |
-| -------------- | ------- | -------------------------------- |
-| interface_name | VARCHAR | Interface name (eth0, en0, etc.) |
-| mac_address    | VARCHAR | MAC address                      |
-| rx_bytes       | UBIGINT | Total bytes received             |
-| tx_bytes       | UBIGINT | Total bytes transmitted          |
-| rx_packets     | UBIGINT | Total packets received           |
-| tx_packets     | UBIGINT | Total packets transmitted        |
-| rx_errors      | UBIGINT | Receive errors                   |
-| tx_errors      | UBIGINT | Transmit errors                  |
+| Column         | Type    | Description                        |
+| -------------- | ------- | ---------------------------------- |
+| interface_name | VARCHAR | Interface name (eth0, en0, etc.)   |
+| mac_address    | VARCHAR | MAC address                        |
+| rx             | DOUBLE  | Total data received (in unit)      |
+| tx             | DOUBLE  | Total data transmitted (in unit)   |
+| rx_packets     | UBIGINT | Total packets received             |
+| tx_packets     | UBIGINT | Total packets transmitted          |
+| rx_errors      | UBIGINT | Receive errors                     |
+| tx_errors      | UBIGINT | Transmit errors                    |
+| unit           | VARCHAR | Unit used for rx/tx values         |
 
 ---
 
 ### Processes
 
-#### `sazgar_processes()`
+#### `sazgar_processes(unit := 'MB')`
 
 Returns information about all running processes.
 
+**Parameters:**
+
+- `unit` (optional): Unit for memory values. Default: `MB`. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+
 ```sql
+-- Default (MB)
 SELECT * FROM sazgar_processes();
 
 -- Top 10 CPU consumers
@@ -409,25 +435,25 @@ ORDER BY cpu_percent DESC
 LIMIT 10;
 
 -- Find processes using more than 100MB
-SELECT pid, name, memory_bytes / 1e6 as memory_mb
+SELECT pid, name, memory, unit
 FROM sazgar_processes()
-WHERE memory_bytes > 100000000
-ORDER BY memory_bytes DESC;
+WHERE memory > 100
+ORDER BY memory DESC;
 ```
 
 **Sample Output (top 5 by memory):**
 
 ```
-┌────────┬─────────────────────────┬─────────────┬──────────────┬────────────────┬──────────┐
-│  pid   │          name           │ cpu_percent │ memory_bytes │ memory_percent │  status  │
-│ uint32 │         varchar         │    float    │    uint64    │     float      │ varchar  │
-├────────┼─────────────────────────┼─────────────┼──────────────┼────────────────┼──────────┤
-│  89588 │ Cursor Helper (Renderer)│         0.0 │    410796032 │           4.78 │ Running  │
-│  59471 │ Google Chrome           │         0.0 │    144490496 │           1.68 │ Running  │
-│  91463 │ Cursor Helper (Plugin)  │         0.0 │    129007616 │           1.50 │ Running  │
-│  89585 │ Cursor Helper (Renderer)│         0.0 │    107659264 │           1.25 │ Running  │
-│  89584 │ Cursor Helper (Renderer)│         0.0 │    107036672 │           1.25 │ Running  │
-└────────┴─────────────────────────┴─────────────┴──────────────┴────────────────┴──────────┘
+┌────────┬─────────────────────────┬─────────────┬──────────┬────────────────┬──────────┬─────────┐
+│  pid   │          name           │ cpu_percent │  memory  │ memory_percent │  status  │  unit   │
+│ uint32 │         varchar         │    float    │  double  │     float      │ varchar  │ varchar │
+├────────┼─────────────────────────┼─────────────┼──────────┼────────────────┼──────────┼─────────┤
+│  89588 │ Cursor Helper (Renderer)│         0.0 │    391.8 │           4.78 │ Running  │ MB      │
+│  59471 │ Google Chrome           │         0.0 │    137.8 │           1.68 │ Running  │ MB      │
+│  91463 │ Cursor Helper (Plugin)  │         0.0 │    123.0 │           1.50 │ Running  │ MB      │
+│  89585 │ Cursor Helper (Renderer)│         0.0 │    102.7 │           1.25 │ Running  │ MB      │
+│  89584 │ Cursor Helper (Renderer)│         0.0 │    102.1 │           1.25 │ Running  │ MB      │
+└────────┴─────────────────────────┴─────────────┴──────────┴────────────────┴──────────┴─────────┘
 ```
 
 | Column           | Type     | Description                      |
@@ -437,11 +463,12 @@ ORDER BY memory_bytes DESC;
 | exe_path         | VARCHAR  | Executable path                  |
 | status           | VARCHAR  | Status (Running, Sleeping, etc.) |
 | cpu_percent      | FLOAT    | CPU usage %                      |
-| memory_bytes     | UBIGINT  | Memory usage in bytes            |
+| memory           | DOUBLE   | Memory usage (in unit)           |
 | memory_percent   | FLOAT    | Memory usage %                   |
 | start_time       | UBIGINT  | Start timestamp (Unix epoch)     |
 | run_time_seconds | UBIGINT  | Total run time in seconds        |
 | user             | VARCHAR  | User ID running the process      |
+| unit             | VARCHAR  | Unit used for memory values      |
 
 ---
 
@@ -612,13 +639,20 @@ SELECT * FROM sazgar_uptime();
 
 ### Swap Memory
 
-#### `sazgar_swap(unit)`
+#### `sazgar_swap(unit := 'GB')`
 
 Returns swap/virtual memory information.
 
+**Parameters:**
+
+- `unit` (optional): Unit for values. Default: `GB`. Options: `bytes`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB`
+
 ```sql
--- Get swap in GiB
-SELECT * FROM sazgar_swap('GiB');
+-- Default (GB)
+SELECT * FROM sazgar_swap();
+
+-- Get swap in GiB (binary)
+SELECT * FROM sazgar_swap(unit := 'GiB');
 ```
 
 **Sample Output:**
