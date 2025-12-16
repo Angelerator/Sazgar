@@ -1,6 +1,12 @@
 # Sazgar - DuckDB System Monitoring Extension
 
+[![DuckDB Community Extension](https://img.shields.io/badge/DuckDB-Community%20Extension-yellow?logo=duckdb)](https://duckdb.org/community_extensions/extensions/sazgar)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Angelerator/Sazgar)](https://github.com/Angelerator/Sazgar/stargazers)
+
 **Sazgar** (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension for system resource monitoring. Built in pure Rust, it provides SQL table functions to query CPU, memory, disk, network, processes, and more.
+
+> **Install:** `INSTALL sazgar FROM community;` • **Load:** `LOAD sazgar;`
 
 ## Table of Contents
 
@@ -45,34 +51,35 @@
 
 ### Available Functions
 
-| Function                | Description                         |
-| ----------------------- | ----------------------------------- |
-| `sazgar_system(unit)`   | Comprehensive system overview       |
-| `sazgar_cpu()`          | CPU information                     |
-| `sazgar_cpu_cores()`    | Per-core CPU usage                  |
-| `sazgar_memory(unit)`   | RAM usage with unit conversion      |
-| `sazgar_swap(unit)`     | Swap/virtual memory info            |
-| `sazgar_os()`           | Operating system details            |
-| `sazgar_disks(unit)`    | Disk usage information              |
-| `sazgar_network(unit)`  | Network interface statistics        |
-| `sazgar_ports(filter)`  | Open network ports and connections  |
-| `sazgar_processes(unit)`| Running processes                   |
-| `sazgar_services()`    | System services (systemd/launchctl) |
-| `sazgar_docker()`      | Docker containers                   |
-| `sazgar_load()`        | System load averages                |
-| `sazgar_uptime()`      | Detailed uptime information         |
-| `sazgar_users()`       | System users                        |
-| `sazgar_environment()` | Environment variables               |
-| `sazgar_components()`  | Temperature sensors                 |
-| `sazgar_gpu()`         | NVIDIA GPU info (optional feature)  |
-| `sazgar_fds(pid)`      | File descriptor counts (Linux)      |
-| `sazgar_version()`     | Extension version                   |
+| Function                 | Description                         |
+| ------------------------ | ----------------------------------- |
+| `sazgar_system(unit)`    | Comprehensive system overview       |
+| `sazgar_cpu()`           | CPU information                     |
+| `sazgar_cpu_cores()`     | Per-core CPU usage                  |
+| `sazgar_memory(unit)`    | RAM usage with unit conversion      |
+| `sazgar_swap(unit)`      | Swap/virtual memory info            |
+| `sazgar_os()`            | Operating system details            |
+| `sazgar_disks(unit)`     | Disk usage information              |
+| `sazgar_network(unit)`   | Network interface statistics        |
+| `sazgar_ports(filter)`   | Open network ports and connections  |
+| `sazgar_processes(unit)` | Running processes                   |
+| `sazgar_services()`      | System services (systemd/launchctl) |
+| `sazgar_docker()`        | Docker containers                   |
+| `sazgar_load()`          | System load averages                |
+| `sazgar_uptime()`        | Detailed uptime information         |
+| `sazgar_users()`         | System users                        |
+| `sazgar_environment()`   | Environment variables               |
+| `sazgar_components()`    | Temperature sensors                 |
+| `sazgar_gpu()`           | NVIDIA GPU info (optional feature)  |
+| `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
+| `sazgar_version()`       | Extension version                   |
 
 ## Quick Start
 
 ```sql
--- Load the extension
-LOAD 'sazgar';
+-- Install and load (one-time)
+INSTALL sazgar FROM community;
+LOAD sazgar;
 
 -- Get system overview (memory in MB by default)
 SELECT * FROM sazgar_system();
@@ -94,12 +101,28 @@ WHERE rx > 0;
 
 ## Installation
 
+### From DuckDB Community Extensions (Recommended)
+
+Sazgar is available on the [DuckDB Community Extensions](https://duckdb.org/community_extensions/extensions/sazgar) repository:
+
+```sql
+-- Install the extension (one-time)
+INSTALL sazgar FROM community;
+
+-- Load the extension
+LOAD sazgar;
+```
+
+That's it! The extension will be automatically downloaded and installed for your platform.
+
 ### From Source
+
+If you want to build from source or contribute:
 
 ```bash
 # Clone the repository
 git clone --recurse-submodules https://github.com/Angelerator/Sazgar.git
-cd sazgar
+cd Sazgar
 
 # Configure and build
 make configure
@@ -108,12 +131,9 @@ make release
 # The extension will be at: build/release/sazgar.duckdb_extension
 ```
 
-### Loading the Extension
-
 ```sql
--- Load with unsigned flag (required for local extensions)
+-- Load local build (requires -unsigned flag)
 -- Start DuckDB with: duckdb -unsigned
-
 LOAD '/path/to/sazgar.duckdb_extension';
 ```
 
@@ -400,17 +420,17 @@ WHERE rx > 0 OR tx > 0;
 └────────────────┴───────────────────┴──────────┴──────────┴────────────┴────────────┴───────────┴───────────┴─────────┘
 ```
 
-| Column         | Type    | Description                        |
-| -------------- | ------- | ---------------------------------- |
-| interface_name | VARCHAR | Interface name (eth0, en0, etc.)   |
-| mac_address    | VARCHAR | MAC address                        |
-| rx             | DOUBLE  | Total data received (in unit)      |
-| tx             | DOUBLE  | Total data transmitted (in unit)   |
-| rx_packets     | UBIGINT | Total packets received             |
-| tx_packets     | UBIGINT | Total packets transmitted          |
-| rx_errors      | UBIGINT | Receive errors                     |
-| tx_errors      | UBIGINT | Transmit errors                    |
-| unit           | VARCHAR | Unit used for rx/tx values         |
+| Column         | Type    | Description                      |
+| -------------- | ------- | -------------------------------- |
+| interface_name | VARCHAR | Interface name (eth0, en0, etc.) |
+| mac_address    | VARCHAR | MAC address                      |
+| rx             | DOUBLE  | Total data received (in unit)    |
+| tx             | DOUBLE  | Total data transmitted (in unit) |
+| rx_packets     | UBIGINT | Total packets received           |
+| tx_packets     | UBIGINT | Total packets transmitted        |
+| rx_errors      | UBIGINT | Receive errors                   |
+| tx_errors      | UBIGINT | Transmit errors                  |
+| unit           | VARCHAR | Unit used for rx/tx values       |
 
 ---
 
