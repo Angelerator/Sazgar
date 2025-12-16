@@ -247,12 +247,12 @@ impl VTab for MemoryVTab {
     type BindData = MemoryBindData;
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
-        // Parse unit parameter
+        // Parse unit parameter (default: MB)
         let unit = if bind.get_named_parameter("unit").is_some() {
             let unit_str = bind.get_named_parameter("unit").unwrap().to_string();
-            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::Bytes)
+            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::MB)
         } else {
-            SizeUnit::Bytes
+            SizeUnit::MB
         };
         
         bind.add_result_column("unit", LogicalTypeHandle::from(LogicalTypeId::Varchar));
@@ -439,7 +439,9 @@ impl VTab for OsVTab {
 // ============================================================================
 
 #[repr(C)]
-struct SystemBindData;
+struct SystemBindData {
+    unit: SizeUnit,
+}
 
 #[repr(C)]
 struct SystemInitData {
@@ -458,6 +460,7 @@ struct SystemInitData {
     memory_usage_percent: f32,
     uptime_seconds: u64,
     process_count: u64,
+    unit: SizeUnit,
 }
 
 struct SystemVTab;
@@ -467,6 +470,14 @@ impl VTab for SystemVTab {
     type BindData = SystemBindData;
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        // Parse unit parameter (default: MB)
+        let unit = if bind.get_named_parameter("unit").is_some() {
+            let unit_str = bind.get_named_parameter("unit").unwrap().to_string();
+            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::MB)
+        } else {
+            SizeUnit::MB
+        };
+        
         bind.add_result_column("os_name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("os_version", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("hostname", LogicalTypeHandle::from(LogicalTypeId::Varchar));
@@ -475,16 +486,21 @@ impl VTab for SystemVTab {
         bind.add_result_column("physical_core_count", LogicalTypeHandle::from(LogicalTypeId::UBigint));
         bind.add_result_column("cpu_brand", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("global_cpu_usage_percent", LogicalTypeHandle::from(LogicalTypeId::Float));
-        bind.add_result_column("total_memory_bytes", LogicalTypeHandle::from(LogicalTypeId::UBigint));
-        bind.add_result_column("used_memory_bytes", LogicalTypeHandle::from(LogicalTypeId::UBigint));
-        bind.add_result_column("available_memory_bytes", LogicalTypeHandle::from(LogicalTypeId::UBigint));
+        bind.add_result_column("total_memory", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("used_memory", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("available_memory", LogicalTypeHandle::from(LogicalTypeId::Double));
         bind.add_result_column("memory_usage_percent", LogicalTypeHandle::from(LogicalTypeId::Float));
         bind.add_result_column("uptime_seconds", LogicalTypeHandle::from(LogicalTypeId::UBigint));
         bind.add_result_column("process_count", LogicalTypeHandle::from(LogicalTypeId::UBigint));
-        Ok(SystemBindData)
+        bind.add_result_column("unit", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        
+        Ok(SystemBindData { unit })
     }
 
-    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+    fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let bind_data = init.get_bind_data::<SystemBindData>();
+        let unit = unsafe { (*bind_data).unit };
+        
         let mut sys = System::new_with_specifics(
             RefreshKind::new()
                 .with_cpu(CpuRefreshKind::everything())
@@ -524,6 +540,7 @@ impl VTab for SystemVTab {
             memory_usage_percent,
             uptime_seconds: System::uptime(),
             process_count: sys.processes().len() as u64,
+            unit,
         })
     }
 
@@ -535,6 +552,8 @@ impl VTab for SystemVTab {
             return Ok(());
         }
         
+        let unit = init_data.unit;
+        
         output.flat_vector(0).insert(0, CString::new(init_data.os_name.clone())?);
         output.flat_vector(1).insert(0, CString::new(init_data.os_version.clone())?);
         output.flat_vector(2).insert(0, CString::new(init_data.hostname.clone())?);
@@ -543,19 +562,24 @@ impl VTab for SystemVTab {
         output.flat_vector(5).as_mut_slice::<u64>()[0] = init_data.physical_core_count;
         output.flat_vector(6).insert(0, CString::new(init_data.cpu_brand.clone())?);
         output.flat_vector(7).as_mut_slice::<f32>()[0] = init_data.global_cpu_usage;
-        output.flat_vector(8).as_mut_slice::<u64>()[0] = init_data.total_memory;
-        output.flat_vector(9).as_mut_slice::<u64>()[0] = init_data.used_memory;
-        output.flat_vector(10).as_mut_slice::<u64>()[0] = init_data.available_memory;
+        output.flat_vector(8).as_mut_slice::<f64>()[0] = unit.convert(init_data.total_memory);
+        output.flat_vector(9).as_mut_slice::<f64>()[0] = unit.convert(init_data.used_memory);
+        output.flat_vector(10).as_mut_slice::<f64>()[0] = unit.convert(init_data.available_memory);
         output.flat_vector(11).as_mut_slice::<f32>()[0] = init_data.memory_usage_percent;
         output.flat_vector(12).as_mut_slice::<u64>()[0] = init_data.uptime_seconds;
         output.flat_vector(13).as_mut_slice::<u64>()[0] = init_data.process_count;
+        output.flat_vector(14).insert(0, CString::new(unit.name())?);
         
         output.set_len(1);
         Ok(())
     }
 
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        None
+        None  // Optional unit parameter via named parameter
+    }
+    
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        Some(vec![("unit".to_string(), LogicalTypeHandle::from(LogicalTypeId::Varchar))])
     }
 }
 
@@ -596,9 +620,9 @@ impl VTab for DisksVTab {
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
         let unit = if bind.get_named_parameter("unit").is_some() {
             let unit_str = bind.get_named_parameter("unit").unwrap().to_string();
-            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::Bytes)
+            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::GB)
         } else {
-            SizeUnit::Bytes
+            SizeUnit::GB  // Default to GB for disk sizes
         };
         
         bind.add_result_column("name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
@@ -704,13 +728,16 @@ impl VTab for DisksVTab {
 // ============================================================================
 
 #[repr(C)]
-struct NetworkBindData;
+struct NetworkBindData {
+    unit: SizeUnit,
+}
 
 #[repr(C)]
 struct NetworkInitData {
     current_idx: AtomicUsize,
     network_count: usize,
     network_data: Vec<NetworkInfo>,
+    unit: SizeUnit,
 }
 
 struct NetworkInfo {
@@ -731,18 +758,31 @@ impl VTab for NetworkVTab {
     type BindData = NetworkBindData;
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        // Parse unit parameter (default: MB)
+        let unit = if bind.get_named_parameter("unit").is_some() {
+            let unit_str = bind.get_named_parameter("unit").unwrap().to_string();
+            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::MB)
+        } else {
+            SizeUnit::MB
+        };
+        
         bind.add_result_column("interface_name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("mac_address", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("rx_bytes", LogicalTypeHandle::from(LogicalTypeId::UBigint));
-        bind.add_result_column("tx_bytes", LogicalTypeHandle::from(LogicalTypeId::UBigint));
+        bind.add_result_column("rx", LogicalTypeHandle::from(LogicalTypeId::Double));
+        bind.add_result_column("tx", LogicalTypeHandle::from(LogicalTypeId::Double));
         bind.add_result_column("rx_packets", LogicalTypeHandle::from(LogicalTypeId::UBigint));
         bind.add_result_column("tx_packets", LogicalTypeHandle::from(LogicalTypeId::UBigint));
         bind.add_result_column("rx_errors", LogicalTypeHandle::from(LogicalTypeId::UBigint));
         bind.add_result_column("tx_errors", LogicalTypeHandle::from(LogicalTypeId::UBigint));
-        Ok(NetworkBindData)
+        bind.add_result_column("unit", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        
+        Ok(NetworkBindData { unit })
     }
 
-    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+    fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let bind_data = init.get_bind_data::<NetworkBindData>();
+        let unit = unsafe { (*bind_data).unit };
+        
         let networks = Networks::new_with_refreshed_list();
         
         let network_data: Vec<NetworkInfo> = networks.iter().map(|(name, data)| {
@@ -764,6 +804,7 @@ impl VTab for NetworkVTab {
             current_idx: AtomicUsize::new(0),
             network_count,
             network_data,
+            unit,
         })
     }
 
@@ -777,18 +818,20 @@ impl VTab for NetworkVTab {
         }
         
         let batch_size = std::cmp::min(2048, init_data.network_count - current);
+        let unit = init_data.unit;
         
         for i in 0..batch_size {
             let net = &init_data.network_data[current + i];
             
             output.flat_vector(0).insert(i, CString::new(net.interface_name.clone())?);
             output.flat_vector(1).insert(i, CString::new(net.mac_address.clone())?);
-            output.flat_vector(2).as_mut_slice::<u64>()[i] = net.rx_bytes;
-            output.flat_vector(3).as_mut_slice::<u64>()[i] = net.tx_bytes;
+            output.flat_vector(2).as_mut_slice::<f64>()[i] = unit.convert(net.rx_bytes);
+            output.flat_vector(3).as_mut_slice::<f64>()[i] = unit.convert(net.tx_bytes);
             output.flat_vector(4).as_mut_slice::<u64>()[i] = net.rx_packets;
             output.flat_vector(5).as_mut_slice::<u64>()[i] = net.tx_packets;
             output.flat_vector(6).as_mut_slice::<u64>()[i] = net.rx_errors;
             output.flat_vector(7).as_mut_slice::<u64>()[i] = net.tx_errors;
+            output.flat_vector(8).insert(i, CString::new(unit.name())?);
         }
         
         init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
@@ -799,6 +842,10 @@ impl VTab for NetworkVTab {
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
         None
     }
+    
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        Some(vec![("unit".to_string(), LogicalTypeHandle::from(LogicalTypeId::Varchar))])
+    }
 }
 
 // ============================================================================
@@ -807,7 +854,9 @@ impl VTab for NetworkVTab {
 // ============================================================================
 
 #[repr(C)]
-struct ProcessesBindData;
+struct ProcessesBindData {
+    unit: SizeUnit,
+}
 
 #[repr(C)]
 struct ProcessesInitData {
@@ -815,6 +864,7 @@ struct ProcessesInitData {
     process_count: usize,
     process_data: Vec<ProcessInfo>,
     total_memory: u64,
+    unit: SizeUnit,
 }
 
 struct ProcessInfo {
@@ -836,20 +886,33 @@ impl VTab for ProcessesVTab {
     type BindData = ProcessesBindData;
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        // Parse unit parameter (default: MB)
+        let unit = if bind.get_named_parameter("unit").is_some() {
+            let unit_str = bind.get_named_parameter("unit").unwrap().to_string();
+            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::MB)
+        } else {
+            SizeUnit::MB
+        };
+        
         bind.add_result_column("pid", LogicalTypeHandle::from(LogicalTypeId::UInteger));
         bind.add_result_column("name", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("exe_path", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("status", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("cpu_percent", LogicalTypeHandle::from(LogicalTypeId::Float));
-        bind.add_result_column("memory_bytes", LogicalTypeHandle::from(LogicalTypeId::UBigint));
+        bind.add_result_column("memory", LogicalTypeHandle::from(LogicalTypeId::Double));
         bind.add_result_column("memory_percent", LogicalTypeHandle::from(LogicalTypeId::Float));
         bind.add_result_column("start_time", LogicalTypeHandle::from(LogicalTypeId::UBigint));
         bind.add_result_column("run_time_seconds", LogicalTypeHandle::from(LogicalTypeId::UBigint));
         bind.add_result_column("user", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        Ok(ProcessesBindData)
+        bind.add_result_column("unit", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        
+        Ok(ProcessesBindData { unit })
     }
 
-    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+    fn init(init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        let bind_data = init.get_bind_data::<ProcessesBindData>();
+        let unit = unsafe { (*bind_data).unit };
+        
         let mut sys = System::new_with_specifics(
             RefreshKind::new()
                 .with_processes(ProcessRefreshKind::everything())
@@ -896,6 +959,7 @@ impl VTab for ProcessesVTab {
             process_count,
             process_data,
             total_memory,
+            unit,
         })
     }
 
@@ -909,6 +973,7 @@ impl VTab for ProcessesVTab {
         }
         
         let batch_size = std::cmp::min(2048, init_data.process_count - current);
+        let unit = init_data.unit;
         
         for i in 0..batch_size {
             let proc = &init_data.process_data[current + i];
@@ -923,11 +988,12 @@ impl VTab for ProcessesVTab {
             output.flat_vector(2).insert(i, CString::new(proc.exe_path.clone())?);
             output.flat_vector(3).insert(i, CString::new(proc.status.clone())?);
             output.flat_vector(4).as_mut_slice::<f32>()[i] = proc.cpu_percent;
-            output.flat_vector(5).as_mut_slice::<u64>()[i] = proc.memory_bytes;
+            output.flat_vector(5).as_mut_slice::<f64>()[i] = unit.convert(proc.memory_bytes);
             output.flat_vector(6).as_mut_slice::<f32>()[i] = memory_percent;
             output.flat_vector(7).as_mut_slice::<u64>()[i] = proc.start_time;
             output.flat_vector(8).as_mut_slice::<u64>()[i] = proc.run_time;
             output.flat_vector(9).insert(i, CString::new(proc.user.clone())?);
+            output.flat_vector(10).insert(i, CString::new(unit.name())?);
         }
         
         init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
@@ -937,6 +1003,10 @@ impl VTab for ProcessesVTab {
 
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
         None
+    }
+    
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        Some(vec![("unit".to_string(), LogicalTypeHandle::from(LogicalTypeId::Varchar))])
     }
 }
 
@@ -1672,19 +1742,19 @@ impl VTab for SwapVTab {
     type BindData = SwapBindData;
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        // Parse unit parameter (default: GB)
+        let unit = if bind.get_named_parameter("unit").is_some() {
+            let unit_str = bind.get_named_parameter("unit").unwrap().to_string();
+            SizeUnit::from_str(&unit_str).unwrap_or(SizeUnit::GB)
+        } else {
+            SizeUnit::GB
+        };
+        
         bind.add_result_column("total_swap", LogicalTypeHandle::from(LogicalTypeId::Double));
         bind.add_result_column("used_swap", LogicalTypeHandle::from(LogicalTypeId::Double));
         bind.add_result_column("free_swap", LogicalTypeHandle::from(LogicalTypeId::Double));
         bind.add_result_column("swap_usage_percent", LogicalTypeHandle::from(LogicalTypeId::Double));
         bind.add_result_column("unit", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        
-        let unit = if bind.get_parameter_count() > 0 {
-            let param = bind.get_parameter(0).to_string();
-            let unit_str = param.trim_matches('"');
-            SizeUnit::from_str(unit_str).unwrap_or(SizeUnit::Bytes)
-        } else {
-            SizeUnit::Bytes
-        };
         
         Ok(SwapBindData { unit })
     }
@@ -1732,7 +1802,11 @@ impl VTab for SwapVTab {
     }
 
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
+        None
+    }
+    
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        Some(vec![("unit".to_string(), LogicalTypeHandle::from(LogicalTypeId::Varchar))])
     }
 }
 
