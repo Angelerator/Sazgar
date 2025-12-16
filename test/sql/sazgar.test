@@ -99,7 +99,7 @@ SELECT
     pid > 0,
     length(name) > 0,
     cpu_percent >= 0,
-    memory_bytes >= 0
+    memory >= 0
 FROM sazgar_processes() LIMIT 1
 ----
 true	true	true	true
@@ -131,7 +131,7 @@ query IIIIII
 SELECT 
     length(os_name) > 0,
     cpu_count > 0,
-    total_memory_bytes > 0,
+    total_memory > 0,
     memory_usage_percent >= 0 AND memory_usage_percent <= 100,
     uptime_seconds > 0,
     process_count > 0
@@ -168,13 +168,13 @@ SELECT
     total_swap >= 0,
     used_swap >= 0,
     free_swap >= 0
-FROM sazgar_swap('bytes')
+FROM sazgar_swap()
 ----
 true	true	true
 
 # Test sazgar_swap with unit
 query I
-SELECT unit = 'GiB' FROM sazgar_swap('GiB')
+SELECT unit = 'GiB' FROM sazgar_swap(unit := 'GiB')
 ----
 true
 
