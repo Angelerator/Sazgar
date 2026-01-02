@@ -1,8 +1,8 @@
 [package]
 name = "sazgar"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
-description = "DuckDB extension for comprehensive system monitoring - CPU, RAM, OS, processes, network, battery, and more"
+description = "DuckDB extension for system monitoring and intelligent query routing - CPU, RAM, OS, processes, network, and smart routing to local/remote backends"
 authors = ["Angelerator"]
 
 [lib]

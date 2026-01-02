@@ -1,10 +1,10 @@
-# Sazgar - DuckDB System Monitoring Extension
+# Sazgar - DuckDB System Monitoring & Intelligent Query Routing
 
 [![DuckDB Community Extension](https://img.shields.io/badge/DuckDB-Community%20Extension-yellow?logo=duckdb)](https://duckdb.org/community_extensions/extensions/sazgar)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Angelerator/Sazgar)](https://github.com/Angelerator/Sazgar/stargazers)
 
-**Sazgar** (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension for system resource monitoring. Built in pure Rust, it provides SQL table functions to query CPU, memory, disk, network, processes, and more.
+**Sazgar** (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension for system resource monitoring and **intelligent query routing**. Built in pure Rust, it provides SQL table functions to query CPU, memory, disk, network, processes, and more. **v0.4.0** adds powerful query routing capabilities to dynamically route queries between local DuckDB and remote backends (Tavana, PostgreSQL, MySQL, BigQuery, etc.) based on system resources.
 
 > **Install:** `INSTALL sazgar FROM community;` • **Load:** `LOAD sazgar;`
 
@@ -12,6 +12,7 @@
 
 - [Features](#features)
 - [Quick Start](#quick-start)
+- [🆕 Query Routing](#query-routing)
 - [Installation](#installation)
 - [Functions Reference](#functions-reference)
   - [sazgar_system()](#sazgar_systemunit--mb)
@@ -45,9 +46,12 @@
 
 - **Cross-Platform**: Works on Linux, macOS, Windows, Android, and iOS
 - **Pure Rust**: No C/C++ dependencies required
-- **20 Table Functions**: Comprehensive system monitoring
+- **25 Table Functions**: Comprehensive system monitoring + query routing
 - **Unit Conversion**: Query memory/disk in bytes, KB, MB, GB, TB (both SI and binary)
 - **Real-time Data**: Get live system metrics directly in SQL
+- **🆕 Intelligent Query Routing**: Route queries to local/remote backends based on system resources
+- **🆕 Multi-Backend Support**: PostgreSQL, MySQL, Tavana, BigQuery, Snowflake, SQLite
+- **🆕 SQL Dialect Translation**: Automatic query translation between backends
 
 ### Available Functions
 
@@ -73,6 +77,12 @@
 | `sazgar_gpu()`           | NVIDIA GPU info (optional feature)  |
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
+| **Query Routing (v0.4.0)** | |
+| `sazgar_resources()`     | Current RAM, CPU, load for routing  |
+| `sazgar_estimate(path)`  | Estimate data size for a path       |
+| `sazgar_run(query, target)` | Execute query on local/remote backend |
+| `sazgar_backend(name, url)` | Register named backend            |
+| `sazgar_backends()`      | List registered backends            |
 
 ## Quick Start
 
@@ -98,6 +108,142 @@ SELECT interface_name, rx, tx, unit
 FROM sazgar_network(unit := 'GB')
 WHERE rx > 0;
 ```
+
+## Query Routing
+
+**New in v0.4.0!** Sazgar provides intelligent query routing capabilities, allowing you to dynamically route queries between local DuckDB and remote backends based on system resources. Data always returns to your local DuckDB!
+
+### Complete Tavana Example
+
+```sql
+-- Load extensions
+LOAD sazgar;
+LOAD postgres;
+
+-- Configure for Tavana/DuckDB compatibility
+SET pg_use_binary_copy = false;
+SET pg_use_text_protocol = true;
+
+-- 1. Check local resources
+SELECT available_gb, cpu_usage FROM sazgar_resources();
+
+-- 2. Estimate data sizes (supports comma-separated paths, recursive folders)
+SELECT path, path_type, estimated_gb, file_count 
+FROM sazgar_estimate('/local/data/, az://bucket/delta-table/');
+
+-- 3. Routing decision
+SET VARIABLE target = (
+  SELECT CASE 
+    WHEN r.available_gb > 10 AND r.cpu_usage < 50 THEN 'local'
+    ELSE 'tavana'
+  END 
+  FROM sazgar_resources() r
+);
+
+-- 4. Get execution script
+SELECT full_script FROM sazgar_run(
+  'SELECT * FROM delta_scan(''az://bucket/data/'') LIMIT 100',
+  getvariable('target')
+);
+
+-- 5. Execute on Tavana - DATA RETURNS TO LOCAL DUCKDB!
+ATTACH 'host=tavana.example.com port=443 user=admin password=secret sslmode=require' AS tavana_db (TYPE postgres);
+SELECT * FROM postgres_query('tavana_db', 
+  'SELECT COUNT(*) FROM delta_scan(''az://my-storage/my-delta-table/'')'
+);
+-- Result: 1234567 (returned to local DuckDB!)
+```
+
+### Path Estimation
+
+```sql
+-- Multiple paths (comma-separated) with recursive folder sizing
+SELECT * FROM sazgar_estimate('/tmp/, /data/parquet/, az://bucket/delta/');
+```
+
+| Column         | Type    | Description                              |
+|----------------|---------|------------------------------------------|
+| path           | VARCHAR | Input path                               |
+| path_type      | VARCHAR | `file`, `folder`, `cloud`, `not_found`  |
+| estimated_gb   | DOUBLE  | Estimated uncompressed size (GB)         |
+| compressed_gb  | DOUBLE  | Compressed size (GB)                     |
+| file_count     | UBIGINT | Number of files                          |
+| folder_count   | UBIGINT | Number of subfolders (recursive)         |
+| format         | VARCHAR | `parquet`, `delta`, `csv`, `json`, etc. |
+| is_accessible  | BOOLEAN | Whether path is accessible               |
+
+### Named Backends
+
+```sql
+-- Register backends once (persists for session)
+SELECT * FROM sazgar_backend('tavana', 'host=tavana.example.com port=443 user=postgres password=xxx sslmode=require');
+SELECT * FROM sazgar_backend('mysql_prod', 'mysql://user:pass@mysql.example.com:3306');
+SELECT * FROM sazgar_backend('bq', 'bigquery://my-project/dataset');
+
+-- List registered backends
+SELECT * FROM sazgar_backends();
+-- ┌────────────┬─────────────────────────────────────────────┬──────────┐
+-- │    name    │                     url                     │ dialect  │
+-- ├────────────┼─────────────────────────────────────────────┼──────────┤
+-- │ local      │ local                                       │ DuckDB   │
+-- │ tavana     │ host=tavana.example.com...                  │ DuckDB   │
+-- │ mysql_prod │ mysql://user:pass@mysql.example.com:3306    │ MySQL    │
+-- │ bq         │ bigquery://my-project/dataset               │ BigQuery │
+-- └────────────┴─────────────────────────────────────────────┴──────────┘
+```
+
+### SQL Dialect Translation
+
+`sazgar_run` automatically translates DuckDB SQL to target dialects:
+
+```sql
+-- Original DuckDB query
+SELECT * FROM users WHERE name ILIKE '%john%'
+
+-- MySQL translation (ILIKE → LIKE)
+SELECT * FROM users WHERE name LIKE '%john%'
+```
+
+| From   | To         | Translations                           |
+|--------|------------|----------------------------------------|
+| DuckDB | PostgreSQL | `STRUCT_PACK()` → `ROW()`, etc.       |
+| DuckDB | MySQL      | `ILIKE` → `LIKE`, removes `::boolean` |
+| DuckDB | BigQuery   | `ILIKE` → `LIKE`                      |
+| DuckDB | Snowflake  | `STRUCT_PACK()` → `OBJECT_CONSTRUCT()` |
+
+### Generated Scripts
+
+`sazgar_run` returns a `full_script` column with complete executable SQL:
+
+```sql
+SELECT full_script FROM sazgar_run('SELECT * FROM my_table', 'mysql_prod');
+-- Output:
+-- -- Load required extension:
+-- LOAD mysql;
+--
+-- -- Execute (returns data to local DuckDB):
+-- SELECT * FROM mysql_query('mysql://user:pass@mysql.example.com:3306', 'SELECT * FROM my_table')
+```
+
+### Supported Backends & Required Extensions
+
+| Backend    | URL Prefix             | Extension Required     | Notes                    |
+|------------|------------------------|------------------------|--------------------------|
+| Local DuckDB | `local`             | none                   | Direct execution         |
+| Tavana     | `host=...` (pg format) | `postgres`            | DuckDB via PostgreSQL wire |
+| PostgreSQL | `postgres://...`       | `postgres`            | Core extension           |
+| MySQL      | `mysql://...`          | `mysql`               | Core extension           |
+| SQLite     | `sqlite://...`         | `sqlite`              | Core extension           |
+| BigQuery   | `bigquery://...`       | `bigquery` (community)| Install from community   |
+| Snowflake  | `snowflake://...`      | `snowflake` (community)| Install from community  |
+
+### How It Works
+
+1. **`sazgar_resources()`** - Current system state (available RAM, CPU%, load averages)
+2. **`sazgar_estimate(paths)`** - Estimate data sizes for local/cloud paths (recursive folder support)
+3. **CASE expression** - Standard SQL decides the target backend
+4. **`sazgar_run(query, target)`** - Generates executable SQL with dialect translation
+5. **Execute** - Run the generated SQL; data flows back to local DuckDB!
 
 ## Installation
 
@@ -203,7 +349,7 @@ SELECT * FROM sazgar_version();
 │ version │
 │ varchar │
 ├─────────┤
-│ 0.3.0   │
+│ 0.4.0   │
 └─────────┘
 ```
 

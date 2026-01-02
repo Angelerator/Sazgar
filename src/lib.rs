@@ -2,6 +2,8 @@ extern crate duckdb;
 extern crate duckdb_loadable_macros;
 extern crate libduckdb_sys;
 
+mod route;
+
 use duckdb::{
     core::{DataChunkHandle, Inserter, LogicalTypeHandle, LogicalTypeId},
     vtab::{BindInfo, InitInfo, TableFunctionInfo, VTab},
@@ -2374,6 +2376,25 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
     
     con.register_table_function::<ServicesVTab>("sazgar_services")
         .expect("Failed to register sazgar_services table function");
+    
+    // ========================================================================
+    // Routing Functions (v0.4.0)
+    // ========================================================================
+    
+    con.register_table_function::<route::ResourcesVTab>("sazgar_resources")
+        .expect("Failed to register sazgar_resources table function");
+    
+    con.register_table_function::<route::EstimateVTab>("sazgar_estimate")
+        .expect("Failed to register sazgar_estimate table function");
+    
+    con.register_table_function::<route::BackendsVTab>("sazgar_backends")
+        .expect("Failed to register sazgar_backends table function");
+    
+    con.register_table_function::<route::RegisterBackendVTab>("sazgar_backend")
+        .expect("Failed to register sazgar_backend table function");
+    
+    con.register_table_function::<route::RunVTab>("sazgar_run")
+        .expect("Failed to register sazgar_run table function");
     
     Ok(())
 }
