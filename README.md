@@ -65,7 +65,7 @@
 | `sazgar_os()`            | Operating system details            |
 | `sazgar_disks(unit)`     | Disk usage information              |
 | `sazgar_network(unit)`   | Network interface statistics        |
-| `sazgar_ports(filter)`   | Open network ports and connections  |
+| `sazgar_ports(filter)`   | Open network ports (Linux/macOS only) |
 | `sazgar_processes(unit)` | Running processes                   |
 | `sazgar_services()`      | System services (systemd/launchctl) |
 | `sazgar_docker()`        | Docker containers                   |

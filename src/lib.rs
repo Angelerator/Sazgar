@@ -1411,13 +1411,16 @@ impl VTab for UptimeVTab {
 // ============================================================================
 // Network Ports Table Function - sazgar_ports()
 // Returns open network ports and connections
+// Note: Only available on Linux and macOS (netstat2 doesn't support Windows)
 // ============================================================================
 
+#[cfg(not(target_os = "windows"))]
 #[repr(C)]
 struct PortsBindData {
     protocol_filter: Option<String>,
 }
 
+#[cfg(not(target_os = "windows"))]
 struct PortInfo {
     protocol: String,
     local_address: String,
@@ -1429,6 +1432,7 @@ struct PortInfo {
     process_name: String,
 }
 
+#[cfg(not(target_os = "windows"))]
 #[repr(C)]
 struct PortsInitData {
     current_idx: AtomicUsize,
@@ -1436,8 +1440,10 @@ struct PortsInitData {
     port_data: Vec<PortInfo>,
 }
 
+#[cfg(not(target_os = "windows"))]
 struct PortsVTab;
 
+#[cfg(not(target_os = "windows"))]
 impl VTab for PortsVTab {
     type InitData = PortsInitData;
     type BindData = PortsBindData;
@@ -2356,6 +2362,7 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
     con.register_table_function::<UptimeVTab>("sazgar_uptime")
         .expect("Failed to register sazgar_uptime table function");
     
+    #[cfg(not(target_os = "windows"))]
     con.register_table_function::<PortsVTab>("sazgar_ports")
         .expect("Failed to register sazgar_ports table function");
     

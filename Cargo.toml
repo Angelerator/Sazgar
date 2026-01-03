@@ -1,6 +1,6 @@
 [package]
 name = "sazgar"
-version = "0.5.0"
+version = "1.0.0"
 edition = "2021"
 description = "DuckDB extension for system monitoring and SQL routing with dialect translation - route queries to PostgreSQL, MySQL, BigQuery, Snowflake and more"
 authors = ["Angelerator"]
@@ -29,7 +29,8 @@ sysinfo = "0.32"
 lazy_static = "1.5"
 # For GPU monitoring (NVIDIA)
 nvml-wrapper = { version = "0.10", optional = true }
-# For network port scanning
+# For network port scanning (Linux/macOS only)
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 netstat2 = "0.11"
 
 [features]
