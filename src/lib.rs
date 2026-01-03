@@ -2382,9 +2382,9 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
     // Requires: pip install sqlglot
     // ========================================================================
     
-    // THE one routing function: sazgar_smart_route(query, fallback, condition)
-    con.register_table_function::<route::SmartRouteVTab>("sazgar_smart_route")
-        .expect("Failed to register sazgar_smart_route table function");
+    // THE one routing function: sazgar_route(query, fallback, condition)
+    con.register_table_function::<route::SmartRouteVTab>("sazgar_route")
+        .expect("Failed to register sazgar_route table function");
     
     // Named targets (secure credential storage)
     con.register_table_function::<route::TargetVTab>("sazgar_target")

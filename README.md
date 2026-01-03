@@ -11,9 +11,9 @@
 ## Table of Contents
 
 - [Features](#features)
-- [Quick Start](#quick-start)
-- [🆕 Query Routing](#query-routing)
 - [Installation](#installation)
+- [Quick Start](#quick-start)
+- [🆕 Smart Routing](#smart-routing)
 - [Functions Reference](#functions-reference)
   - [sazgar_system()](#sazgar_systemunit--mb)
   - [sazgar_version()](#sazgar_version)
@@ -78,12 +78,52 @@
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
 | **Smart Routing (v0.6.0)** - Requires `pip install sqlglot` | |
-| `sazgar_smart_route(query, fallback, condition)` | THE one routing function - flexible conditions! |
+| `sazgar_route(query, fallback, condition)` | THE one routing function - flexible conditions! |
 | `sazgar_target(name, connection)` | Register named targets (secure credentials) |
 | `sazgar_targets()` | List all registered targets |
 | `sazgar_translate(query, dialect)` | Direct SQL dialect translation via SQLGlot |
 | `sazgar_estimate(path)`  | Estimate data size for paths |
 | `sazgar_sqlglot()` | Check SQLGlot availability and version |
+
+## Installation
+
+### From DuckDB Community Extensions (Recommended)
+
+Sazgar is available on the [DuckDB Community Extensions](https://duckdb.org/community_extensions/extensions/sazgar) repository:
+
+```sql
+-- Install the extension (one-time)
+INSTALL sazgar FROM community;
+
+-- Load the extension
+LOAD sazgar;
+```
+
+That's it! The extension will be automatically downloaded and installed for your platform.
+
+### From Source
+
+If you want to build from source or contribute:
+
+```bash
+# Clone the repository
+git clone --recurse-submodules https://github.com/Angelerator/Sazgar.git
+cd Sazgar
+
+# Configure and build
+make configure
+make release
+
+# The extension will be at: build/release/sazgar.duckdb_extension
+```
+
+```sql
+-- Load local build (requires -unsigned flag)
+-- Start DuckDB with: duckdb -unsigned
+LOAD '/path/to/sazgar.duckdb_extension';
+```
+
+---
 
 ## Quick Start
 
@@ -137,7 +177,7 @@ SELECT * FROM sazgar_targets();
 -- └────────────┴─────────┴──────────┘
 ```
 
-### The ONE Function: `sazgar_smart_route(query, fallback, condition)`
+### The ONE Function: `sazgar_route(query, fallback, condition)`
 
 ### Flexible Conditions with ANY Sazgar Function
 
@@ -145,28 +185,28 @@ SELECT * FROM sazgar_targets();
 LOAD sazgar;
 
 -- Route based on available memory (using sazgar_memory)
-SELECT * FROM sazgar_smart_route(
+SELECT * FROM sazgar_route(
   'SELECT * FROM big_table',
   'tavana',  -- Named target (no credentials exposed!)
   '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4'
 );
 
 -- Route based on system load (using sazgar_load)
-SELECT * FROM sazgar_smart_route(
+SELECT * FROM sazgar_route(
   'SELECT * FROM analytics',
   'prod_mysql',
   '(SELECT load_1min FROM sazgar_load()) > 5'
 );
 
 -- Route based on CPU usage (using sazgar_cpu)
-SELECT * FROM sazgar_smart_route(
+SELECT * FROM sazgar_route(
   'SELECT STRUCT_PACK(a := 1)',
   'bigquery://project/dataset',
   '(SELECT avg(usage_percent) FROM sazgar_cpu()) > 80'
 );
 
 -- Combine multiple conditions
-SELECT * FROM sazgar_smart_route(
+SELECT * FROM sazgar_route(
   'SELECT * FROM critical_data',
   'tavana',
   '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4 
@@ -174,7 +214,7 @@ SELECT * FROM sazgar_smart_route(
 );
 
 -- Route based on disk space (using sazgar_disks)
-SELECT * FROM sazgar_smart_route(
+SELECT * FROM sazgar_route(
   'SELECT * FROM logs',
   'postgres://log-server/db',
   '(SELECT available_gb FROM sazgar_disks() WHERE mount_point = ''/'') < 20'
@@ -185,7 +225,7 @@ SELECT * FROM sazgar_smart_route(
 
 ```sql
 -- To MySQL: x::int → CAST(x AS SIGNED), ILIKE → LOWER...LIKE LOWER
-SELECT translated_query FROM sazgar_smart_route(
+SELECT translated_query FROM sazgar_route(
   'SELECT x::int, name ILIKE ''%test%'' FROM users',
   'prod_mysql',
   'TRUE'
@@ -195,7 +235,7 @@ SELECT translated_query FROM sazgar_smart_route(
 -- └───────────────────────────────────────────────────────────────────────┘
 
 -- To BigQuery: EPOCH_MS → TIMESTAMP_MILLIS
-SELECT translated_query FROM sazgar_smart_route(
+SELECT translated_query FROM sazgar_route(
   'SELECT EPOCH_MS(123456)',
   'bigquery://project/dataset',
   'TRUE'
@@ -322,46 +362,6 @@ SELECT execute_sql FROM sazgar_route(
 -- Output (ready to run!):
 -- SELECT * FROM postgres_query('host=...', 'SELECT * FROM delta_scan(...)...')
 ```
-
-## Installation
-
-### From DuckDB Community Extensions (Recommended)
-
-Sazgar is available on the [DuckDB Community Extensions](https://duckdb.org/community_extensions/extensions/sazgar) repository:
-
-```sql
--- Install the extension (one-time)
-INSTALL sazgar FROM community;
-
--- Load the extension
-LOAD sazgar;
-```
-
-That's it! The extension will be automatically downloaded and installed for your platform.
-
-### From Source
-
-If you want to build from source or contribute:
-
-```bash
-# Clone the repository
-git clone --recurse-submodules https://github.com/Angelerator/Sazgar.git
-cd Sazgar
-
-# Configure and build
-make configure
-make release
-
-# The extension will be at: build/release/sazgar.duckdb_extension
-```
-
-```sql
--- Load local build (requires -unsigned flag)
--- Start DuckDB with: duckdb -unsigned
-LOAD '/path/to/sazgar.duckdb_extension';
-```
-
----
 
 ## Functions Reference
 

@@ -1,6 +1,6 @@
 //! Sazgar Smart Routing Module v0.6.0
 //!
-//! ONE function for all routing: `sazgar_smart_route(query, fallback, condition)`
+//! ONE function for all routing: `sazgar_route(query, fallback, condition)`
 //!
 //! ## Requirements
 //! - Python 3 with SQLGlot: `pip install sqlglot`
@@ -13,7 +13,7 @@
 //! SELECT * FROM sazgar_target('prod_mysql', 'mysql://user:pass@host/db');
 //!
 //! -- Then use by name (no credentials in query!)
-//! SELECT * FROM sazgar_smart_route(
+//! SELECT * FROM sazgar_route(
 //!   query := 'SELECT * FROM big_table',
 //!   fallback := 'tavana',  -- Just the name!
 //!   condition := '(SELECT available_memory FROM sazgar_memory(''GB'')) < 2'
@@ -22,7 +22,7 @@
 //!
 //! ## Direct Connection (for quick testing)
 //! ```sql
-//! SELECT * FROM sazgar_smart_route(
+//! SELECT * FROM sazgar_route(
 //!   query := 'SELECT * FROM table',
 //!   fallback := 'postgres://user:pass@host/db',
 //!   condition := '(SELECT load_1min FROM sazgar_load()) > 5'
@@ -397,7 +397,7 @@ impl VTab for TargetsVTab {
 }
 
 // ============================================================================
-// sazgar_smart_route() - THE ONE ROUTING FUNCTION
+// sazgar_route() - THE ONE ROUTING FUNCTION
 // ============================================================================
 
 #[repr(C)]
