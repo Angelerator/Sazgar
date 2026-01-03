@@ -13,7 +13,7 @@
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [🆕 Smart Routing](#smart-routing)
+- [Smart Routing](#smart-routing)
 - [Functions Reference](#functions-reference)
   - [sazgar_system()](#sazgar_systemunit--mb)
   - [sazgar_version()](#sazgar_version)
@@ -49,9 +49,9 @@
 - **25 Table Functions**: Comprehensive system monitoring + query routing
 - **Unit Conversion**: Query memory/disk in bytes, KB, MB, GB, TB (both SI and binary)
 - **Real-time Data**: Get live system metrics directly in SQL
-- **🆕 Intelligent Query Routing**: Route queries to local/remote backends based on system resources
-- **🆕 Multi-Backend Support**: PostgreSQL, MySQL, Tavana, BigQuery, Snowflake, SQLite
-- **🆕 SQL Dialect Translation**: Automatic query translation between backends
+- **Intelligent Query Routing**: Route queries to local/remote backends based on system resources
+- **Multi-Backend Support**: PostgreSQL, MySQL, Tavana, BigQuery, Snowflake, SQLite
+- **SQL Dialect Translation**: Automatic query translation between backends
 
 ### Available Functions
 
@@ -178,6 +178,26 @@ SELECT * FROM sazgar_targets();
 ```
 
 ### The ONE Function: `sazgar_route(query, fallback, condition)`
+
+| Parameter | Description |
+|-----------|-------------|
+| `query` | Your SQL query (DuckDB dialect) |
+| `fallback` | Target name or connection string |
+| `condition` | SQL expression that returns TRUE to route, FALSE to stay local |
+
+### Always Route (No Condition)
+
+```sql
+-- Use 'TRUE' to always route to the target
+SELECT * FROM sazgar_route('SELECT * FROM users', 'tavana', 'TRUE');
+
+-- Useful for: testing, forced remote execution, or when you always want remote
+SELECT translated_query, execute_sql FROM sazgar_route(
+  'SELECT * FROM big_table',
+  'local_mysql',
+  'TRUE'  -- Always route to MySQL
+);
+```
 
 ### Flexible Conditions with ANY Sazgar Function
 
