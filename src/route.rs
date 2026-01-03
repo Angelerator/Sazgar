@@ -46,6 +46,7 @@ use std::{
 // ============================================================================
 
 /// Translate SQL from DuckDB dialect to target dialect using SQLGlot
+/// Auto-installs SQLGlot if Python exists but SQLGlot doesn't
 pub fn sqlglot_transpile(sql: &str, to_dialect: &str) -> Result<String, String> {
     // No translation needed for DuckDB targets
     let to = to_dialect.to_lowercase();
@@ -104,19 +105,36 @@ pub fn sqlglot_transpile(sql: &str, to_dialect: &str) -> Result<String, String> 
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 if stderr.contains("No module named 'sqlglot'") {
-                    Err("SQLGlot not installed. Run: pip install sqlglot".to_string())
+                    // Try auto-install
+                    eprintln!("SQLGlot not found. Attempting auto-install...");
+                    match auto_install_sqlglot() {
+                        Ok(_) => {
+                            // Retry translation after install
+                            let retry = Command::new("python3")
+                                .args(["-c", &python_code])
+                                .output()
+                                .or_else(|_| Command::new("python").args(["-c", &python_code]).output());
+                            match retry {
+                                Ok(r) if r.status.success() => {
+                                    Ok(String::from_utf8_lossy(&r.stdout).trim().to_string())
+                                }
+                                _ => Err("SQLGlot installed but translation failed".to_string()),
+                            }
+                        }
+                        Err(e) => Err(format!("SQLGlot not installed. Auto-install failed: {}. Run: pip install sqlglot", e)),
+                    }
                 } else {
                     Err(format!("SQLGlot error: {}", stderr.trim()))
                 }
             }
         }
         Err(e) => {
-            Err(format!("Python not found. Install Python and SQLGlot: pip install sqlglot. Error: {}", e))
+            Err(format!("Python not found. Install Python: https://python.org/downloads. Error: {}", e))
         }
     }
 }
 
-/// Check if SQLGlot is available
+/// Check if SQLGlot is available, auto-install if Python exists but SQLGlot doesn't
 pub fn check_sqlglot() -> Result<String, String> {
     let python_code = "import sqlglot; print(f'SQLGlot {sqlglot.__version__}')";
     
@@ -130,10 +148,57 @@ pub fn check_sqlglot() -> Result<String, String> {
             if output.status.success() {
                 Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
             } else {
-                Err("SQLGlot not installed. Run: pip install sqlglot".to_string())
+                // Python exists but SQLGlot not installed - try to auto-install
+                eprintln!("SQLGlot not found. Attempting auto-install...");
+                match auto_install_sqlglot() {
+                    Ok(msg) => Ok(msg),
+                    Err(e) => Err(format!("SQLGlot not installed. Auto-install failed: {}. Run manually: pip install sqlglot", e)),
+                }
             }
         }
-        Err(_) => Err("Python not found. Install Python and SQLGlot: pip install sqlglot".to_string()),
+        Err(_) => Err("Python not found. Install Python: https://python.org/downloads then: pip install sqlglot".to_string()),
+    }
+}
+
+/// Attempt to auto-install SQLGlot using pip
+fn auto_install_sqlglot() -> Result<String, String> {
+    // Try pip3 first, then pip
+    let install_result = Command::new("python3")
+        .args(["-m", "pip", "install", "--user", "--quiet", "sqlglot"])
+        .output()
+        .or_else(|_| Command::new("python")
+            .args(["-m", "pip", "install", "--user", "--quiet", "sqlglot"])
+            .output())
+        .or_else(|_| Command::new("pip3")
+            .args(["install", "--user", "--quiet", "sqlglot"])
+            .output())
+        .or_else(|_| Command::new("pip")
+            .args(["install", "--user", "--quiet", "sqlglot"])
+            .output());
+    
+    match install_result {
+        Ok(output) => {
+            if output.status.success() {
+                // Verify installation
+                let verify = Command::new("python3")
+                    .args(["-c", "import sqlglot; print(f'SQLGlot {sqlglot.__version__} (auto-installed)')"])
+                    .output()
+                    .or_else(|_| Command::new("python")
+                        .args(["-c", "import sqlglot; print(f'SQLGlot {sqlglot.__version__} (auto-installed)')"])
+                        .output());
+                
+                match verify {
+                    Ok(v) if v.status.success() => {
+                        Ok(String::from_utf8_lossy(&v.stdout).trim().to_string())
+                    }
+                    _ => Err("Installed but verification failed".to_string()),
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("pip install failed: {}", stderr.trim()))
+            }
+        }
+        Err(e) => Err(format!("Could not run pip: {}", e)),
     }
 }
 
