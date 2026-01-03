@@ -1,8 +1,8 @@
 [package]
 name = "sazgar"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
-description = "DuckDB extension for system monitoring and intelligent query routing - CPU, RAM, OS, processes, network, and smart routing to local/remote backends"
+description = "DuckDB extension for system monitoring and SQL routing with dialect translation - route queries to PostgreSQL, MySQL, BigQuery, Snowflake and more"
 authors = ["Angelerator"]
 
 [lib]

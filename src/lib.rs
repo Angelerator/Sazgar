@@ -2378,23 +2378,29 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
         .expect("Failed to register sazgar_services table function");
     
     // ========================================================================
-    // Routing Functions (v0.4.0)
+    // Routing Functions (v0.5.0) - SQLGlot-Powered SQL Routing
+    // Requires: pip install sqlglot
     // ========================================================================
     
+    // System resources (RAM, CPU, load) - use in routing conditions!
     con.register_table_function::<route::ResourcesVTab>("sazgar_resources")
         .expect("Failed to register sazgar_resources table function");
     
+    // Estimate data size for paths
     con.register_table_function::<route::EstimateVTab>("sazgar_estimate")
         .expect("Failed to register sazgar_estimate table function");
     
-    con.register_table_function::<route::BackendsVTab>("sazgar_backends")
-        .expect("Failed to register sazgar_backends table function");
+    // THE main function - route query to target with SQLGlot dialect translation
+    con.register_table_function::<route::RouteVTab>("sazgar_route")
+        .expect("Failed to register sazgar_route table function");
     
-    con.register_table_function::<route::RegisterBackendVTab>("sazgar_backend")
-        .expect("Failed to register sazgar_backend table function");
+    // Direct SQL dialect translation via SQLGlot
+    con.register_table_function::<route::TranslateVTab>("sazgar_translate")
+        .expect("Failed to register sazgar_translate table function");
     
-    con.register_table_function::<route::RunVTab>("sazgar_run")
-        .expect("Failed to register sazgar_run table function");
+    // Check SQLGlot availability
+    con.register_table_function::<route::SqlglotCheckVTab>("sazgar_sqlglot")
+        .expect("Failed to register sazgar_sqlglot table function");
     
     Ok(())
 }
