@@ -9,7 +9,7 @@
 //! Register named targets once, use by name forever:
 //! ```sql
 //! -- Register target (credentials stored in memory, not in queries)
-//! SELECT * FROM sazgar_target('tavana', 'host=tavana-dev... password=secret');
+//! SELECT * FROM sazgar_target('tavana', 'host=tavana.example.com port=443 password=***');
 //! SELECT * FROM sazgar_target('prod_mysql', 'mysql://user:pass@host/db');
 //!
 //! -- Then use by name (no credentials in query!)

@@ -124,8 +124,8 @@ pip install sqlglot   # Required for dialect translation (auto-installs if Pytho
 
 ```sql
 -- Register targets ONCE (credentials stored securely in memory)
-SELECT * FROM sazgar_target('tavana', 'host=tavana-dev.int.nokia.com port=443 user=postgres password=postgres sslmode=require');
-SELECT * FROM sazgar_target('prod_mysql', 'mysql://user:secret@prod-server/db');
+SELECT * FROM sazgar_target('tavana', 'host=tavana.example.com port=443 user=admin password=*** sslmode=require');
+SELECT * FROM sazgar_target('prod_mysql', 'mysql://user:***@prod-server/db');
 
 -- List registered targets
 SELECT * FROM sazgar_targets();
@@ -316,7 +316,7 @@ LOAD postgres;
 -- Route to Tavana (DuckDB over PostgreSQL wire)
 SELECT execute_sql FROM sazgar_route(
   'SELECT * FROM delta_scan(''az://bucket/data/'') LIMIT 100',
-  'host=tavana.example.com port=443 user=admin password=secret sslmode=require'
+  'host=tavana.example.com port=443 user=admin password=*** sslmode=require'
 );
 
 -- Output (ready to run!):
