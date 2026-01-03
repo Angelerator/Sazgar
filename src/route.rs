@@ -337,11 +337,17 @@ impl VTab for ResourcesVTab {
         let gb = 1_073_741_824.0;
         let load = System::load_average();
         
+        let total_gb = sys.total_memory() as f64 / gb;
+        let used_gb = sys.used_memory() as f64 / gb;
+        // available_memory() may return 0 on macOS, compute as fallback
+        let available = sys.available_memory() as f64 / gb;
+        let available_gb = if available > 0.0 { available } else { total_gb - used_gb };
+        
         Ok(ResourcesInitData {
             done: AtomicBool::new(false),
-            available_gb: sys.available_memory() as f64 / gb,
-            total_gb: sys.total_memory() as f64 / gb,
-            used_gb: sys.used_memory() as f64 / gb,
+            available_gb,
+            total_gb,
+            used_gb,
             cpu_usage: sys.global_cpu_usage(),
             cpu_count: sys.cpus().len() as u64,
             load_1m: load.one,
