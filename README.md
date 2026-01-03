@@ -77,12 +77,13 @@
 | `sazgar_gpu()`           | NVIDIA GPU info (optional feature)  |
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
-| **Query Routing (v0.5.0)** - Requires `pip install sqlglot` | |
-| `sazgar_route(query, target)` | Route query with SQLGlot dialect translation |
+| **Smart Routing (v0.6.0)** - Requires `pip install sqlglot` | |
+| `sazgar_smart_route(query, fallback, condition)` | THE one routing function - flexible conditions! |
+| `sazgar_target(name, connection)` | Register named targets (secure credentials) |
+| `sazgar_targets()` | List all registered targets |
 | `sazgar_translate(query, dialect)` | Direct SQL dialect translation via SQLGlot |
-| `sazgar_estimate(path)`  | Estimate data size for paths (for routing conditions) |
+| `sazgar_estimate(path)`  | Estimate data size for paths |
 | `sazgar_sqlglot()` | Check SQLGlot availability and version |
-| *Use ANY sazgar function for conditions!* | `sazgar_memory()`, `sazgar_load()`, `sazgar_cpu()`, etc. |
 
 ## Quick Start
 
@@ -109,101 +110,119 @@ FROM sazgar_network(unit := 'GB')
 WHERE rx > 0;
 ```
 
-## Query Routing
+## Smart Routing
 
-**Ultra-simplified in v0.5.0!** Write SQL in DuckDB dialect ONLY. Sazgar translates to any target dialect via [SQLGlot](https://github.com/tobymao/sqlglot) (31+ dialects).
+**ONE function for all routing in v0.6.0!** Use any sazgar function in conditions.
 
 ### Requirements
 
 ```bash
-pip install sqlglot   # Required for dialect translation
+pip install sqlglot   # Required for dialect translation (auto-installs if Python exists)
 ```
 
-### One Function: `sazgar_route(query, target)`
+### Secure Credentials with Named Targets
 
-### One-Line Routing
+```sql
+-- Register targets ONCE (credentials stored securely in memory)
+SELECT * FROM sazgar_target('tavana', 'host=tavana-dev.int.nokia.com port=443 user=postgres password=postgres sslmode=require');
+SELECT * FROM sazgar_target('prod_mysql', 'mysql://user:secret@prod-server/db');
+
+-- List registered targets
+SELECT * FROM sazgar_targets();
+-- ┌────────────┬─────────┬──────────┐
+-- │    name    │ dialect │ provider │
+-- ├────────────┼─────────┼──────────┤
+-- │ tavana     │ duckdb  │ postgres │
+-- │ prod_mysql │ mysql   │ mysql    │
+-- └────────────┴─────────┴──────────┘
+```
+
+### The ONE Function: `sazgar_smart_route(query, fallback, condition)`
+
+### Flexible Conditions with ANY Sazgar Function
 
 ```sql
 LOAD sazgar;
 
--- That's it! Just pass query and connection string
-SELECT execute_sql FROM sazgar_route(
-  'SELECT * FROM sales WHERE year = 2024',
-  'postgres://user:pass@host/db'
+-- Route based on available memory (using sazgar_memory)
+SELECT * FROM sazgar_smart_route(
+  'SELECT * FROM big_table',
+  'tavana',  -- Named target (no credentials exposed!)
+  '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4'
 );
--- Returns ready-to-execute SQL with proper dialect translation!
 
--- MySQL  
-SELECT translated_query FROM sazgar_route(
-  'SELECT x::int, name ILIKE ''%john%'' FROM users',
-  'mysql://user:pass@host/db'
+-- Route based on system load (using sazgar_load)
+SELECT * FROM sazgar_smart_route(
+  'SELECT * FROM analytics',
+  'prod_mysql',
+  '(SELECT load_1min FROM sazgar_load()) > 5'
 );
--- ┌───────────────────────────────────────────────────────────────────────┐
--- │ SELECT CAST(x AS SIGNED), LOWER(name) LIKE LOWER('%john%') FROM users │  ← SQLGlot!
--- └───────────────────────────────────────────────────────────────────────┘
 
--- Snowflake
-SELECT translated_query FROM sazgar_route(
-  'SELECT STRUCT_PACK(a := 1, b := 2), list_value(1,2,3) FROM t',
-  'snowflake://account.snowflakecomputing.com'
+-- Route based on CPU usage (using sazgar_cpu)
+SELECT * FROM sazgar_smart_route(
+  'SELECT STRUCT_PACK(a := 1)',
+  'bigquery://project/dataset',
+  '(SELECT avg(usage_percent) FROM sazgar_cpu()) > 80'
 );
--- ┌────────────────────────────────────────────────────────┐
--- │ SELECT OBJECT_CONSTRUCT('a', 1, 'b', 2), [1, 2, 3] ... │  ← SQLGlot!
--- └────────────────────────────────────────────────────────┘
 
--- BigQuery
-SELECT translated_query FROM sazgar_route(
-  'SELECT EPOCH_MS(123456), strftime(dt, ''%Y-%m-%d'')',
-  'bigquery://project/dataset'
+-- Combine multiple conditions
+SELECT * FROM sazgar_smart_route(
+  'SELECT * FROM critical_data',
+  'tavana',
+  '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4 
+   OR (SELECT load_1min FROM sazgar_load()) > 10'
 );
--- ┌────────────────────────────────────────────────────────┐
--- │ SELECT TIMESTAMP_MILLIS(123456), FORMAT_DATE('%F', dt) │
--- └────────────────────────────────────────────────────────┘
+
+-- Route based on disk space (using sazgar_disks)
+SELECT * FROM sazgar_smart_route(
+  'SELECT * FROM logs',
+  'postgres://log-server/db',
+  '(SELECT available_gb FROM sazgar_disks() WHERE mount_point = ''/'') < 20'
+);
 ```
 
-### Use ANY Sazgar Function as Routing Conditions
-
-All 20+ sazgar functions work! Use DuckDB variables to compute target first:
+### Dialect Translation (via SQLGlot)
 
 ```sql
--- Route based on available memory (sazgar_memory returns MB by default)
-SET VARIABLE target = (
-  SELECT CASE 
-    WHEN total_memory - used_memory < 8000 THEN 'mysql://remote/db'  -- < 8GB
-    ELSE 'local'
-  END FROM sazgar_memory()
+-- To MySQL: x::int → CAST(x AS SIGNED), ILIKE → LOWER...LIKE LOWER
+SELECT translated_query FROM sazgar_smart_route(
+  'SELECT x::int, name ILIKE ''%test%'' FROM users',
+  'prod_mysql',
+  'TRUE'
 );
-SELECT translated_query FROM sazgar_route('SELECT x::int, name ILIKE ''%test%''', getvariable('target'));
--- MySQL: SELECT CAST(x AS SIGNED), LOWER(name) LIKE LOWER('%test%')
+-- ┌───────────────────────────────────────────────────────────────────────┐
+-- │ SELECT CAST(x AS SIGNED), LOWER(name) LIKE LOWER('%test%') FROM users │
+-- └───────────────────────────────────────────────────────────────────────┘
 
--- Route based on system load (sazgar_load)
-SET VARIABLE target = (
-  SELECT CASE 
-    WHEN load_1min > 5 THEN 'postgres://cluster/db'
-    ELSE 'local'
-  END FROM sazgar_load()
+-- To BigQuery: EPOCH_MS → TIMESTAMP_MILLIS
+SELECT translated_query FROM sazgar_smart_route(
+  'SELECT EPOCH_MS(123456)',
+  'bigquery://project/dataset',
+  'TRUE'
 );
-SELECT translated_query FROM sazgar_route('SELECT STRUCT_PACK(a := 1)', getvariable('target'));
--- PostgreSQL: SELECT STRUCT(1 AS a)
+-- ┌─────────────────────────────────┐
+-- │ SELECT TIMESTAMP_MILLIS(123456) │
+-- └─────────────────────────────────┘
+```
 
--- Route based on average CPU usage (sazgar_cpu - aggregate for multi-core)
-SET VARIABLE target = (
-  SELECT CASE 
-    WHEN avg(usage_percent) > 80 THEN 'bigquery://project/dataset'
-    ELSE 'local'
-  END FROM sazgar_cpu()
-);
-SELECT translated_query FROM sazgar_route('SELECT EPOCH_MS(123456)', getvariable('target'));
--- BigQuery: SELECT TIMESTAMP_MILLIS(123456)
+### Direct SQL Translation (Utility)
 
--- Route based on disk space (sazgar_disks)
-SET VARIABLE target = (
-  SELECT CASE 
-    WHEN available_gb < 20 THEN 'postgres://log-server/db'
-    ELSE 'local'
-  END FROM sazgar_disks() WHERE mount_point = '/'
-);
-SELECT translated_query FROM sazgar_route('SELECT * FROM logs', getvariable('target'));
+```sql
+-- Translate DuckDB SQL to any dialect directly
+SELECT * FROM sazgar_translate('SELECT x::int, ILIKE ''%test%''', 'mysql');
+-- ┌───────────────────────────┬────────────────────────────────────────────┐
+-- │         original          │                translated                  │
+-- ├───────────────────────────┼────────────────────────────────────────────┤
+-- │ SELECT x::int, ILIKE...   │ SELECT CAST(x AS SIGNED), LOWER...LIKE ... │
+-- └───────────────────────────┴────────────────────────────────────────────┘
+
+-- Check SQLGlot status
+SELECT * FROM sazgar_sqlglot();
+-- ┌───────────┬────────────────┐
+-- │ available │    version     │
+-- ├───────────┼────────────────┤
+-- │ true      │ SQLGlot 28.5.0 │
+-- └───────────┴────────────────┘
 ```
 
 ### Supported Connection Strings
