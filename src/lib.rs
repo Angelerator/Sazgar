@@ -2380,11 +2380,14 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
     // ========================================================================
     // Routing Functions (v0.5.0) - SQLGlot-Powered SQL Routing
     // Requires: pip install sqlglot
+    // 
+    // NOTE: For routing conditions, use ANY existing sazgar function via SQL!
+    //   - sazgar_memory()  → available_gb, total_gb, used_gb
+    //   - sazgar_load()    → load_1m, load_5m, load_15m
+    //   - sazgar_cpu()     → cpu_count, usage_percent  
+    //   - sazgar_disks()   → disk info
+    //   - And 20+ more!
     // ========================================================================
-    
-    // System resources (RAM, CPU, load) - use in routing conditions!
-    con.register_table_function::<route::ResourcesVTab>("sazgar_resources")
-        .expect("Failed to register sazgar_resources table function");
     
     // Estimate data size for paths
     con.register_table_function::<route::EstimateVTab>("sazgar_estimate")

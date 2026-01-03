@@ -8,14 +8,26 @@
 //! ## Design
 //! - Users write SQL in DuckDB dialect ONLY
 //! - Sazgar auto-translates to destination dialect via SQLGlot
-//! - All sazgar functions can be used in routing conditions
+//! - ALL existing sazgar functions work as routing conditions via SQL!
 //!
-//! ## Example
+//! ## Example - Use ANY sazgar function for routing conditions!
 //! ```sql
-//! -- One-line routing with auto translation!
+//! -- Route based on available memory (uses existing sazgar_memory())
 //! SELECT execute_sql FROM sazgar_route(
-//!   'SELECT * FROM sales WHERE year = 2024',
-//!   'mysql://user:pass@host/db'
+//!   'SELECT * FROM big_data',
+//!   CASE WHEN (SELECT available_gb FROM sazgar_memory()) < 8
+//!        THEN 'postgres://remote/db'
+//!        ELSE 'local'
+//!   END
+//! );
+//!
+//! -- Route based on CPU load (uses existing sazgar_load())
+//! SELECT execute_sql FROM sazgar_route(
+//!   'SELECT * FROM analytics',
+//!   CASE WHEN (SELECT load_1m FROM sazgar_load()) > 5
+//!        THEN 'mysql://cluster/db'
+//!        ELSE 'local'
+//!   END
 //! );
 //! ```
 
@@ -28,7 +40,6 @@ use std::{
     process::Command,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-use sysinfo::{System, MemoryRefreshKind, CpuRefreshKind, RefreshKind};
 
 // ============================================================================
 // SQLGlot Integration via Python subprocess
@@ -288,99 +299,13 @@ impl ConnectionInfo {
 }
 
 // ============================================================================
-// Resources Table Function - sazgar_resources()
+// NOTE: For routing conditions, use existing sazgar functions via SQL:
+//   - sazgar_memory()  → available_gb, total_gb, used_gb
+//   - sazgar_load()    → load_1m, load_5m, load_15m  
+//   - sazgar_cpu()     → cpu_count, usage_percent
+//   - sazgar_disks()   → disk info
+//   - And 20+ more!
 // ============================================================================
-
-#[repr(C)]
-pub struct ResourcesBindData;
-
-#[repr(C)]
-pub struct ResourcesInitData {
-    done: AtomicBool,
-    available_gb: f64,
-    total_gb: f64,
-    used_gb: f64,
-    cpu_usage: f32,
-    cpu_count: u64,
-    load_1m: f64,
-    load_5m: f64,
-    load_15m: f64,
-}
-
-pub struct ResourcesVTab;
-
-impl VTab for ResourcesVTab {
-    type InitData = ResourcesInitData;
-    type BindData = ResourcesBindData;
-
-    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
-        bind.add_result_column("available_gb", LogicalTypeHandle::from(LogicalTypeId::Double));
-        bind.add_result_column("total_gb", LogicalTypeHandle::from(LogicalTypeId::Double));
-        bind.add_result_column("used_gb", LogicalTypeHandle::from(LogicalTypeId::Double));
-        bind.add_result_column("cpu_usage", LogicalTypeHandle::from(LogicalTypeId::Float));
-        bind.add_result_column("cpu_count", LogicalTypeHandle::from(LogicalTypeId::UBigint));
-        bind.add_result_column("load_1m", LogicalTypeHandle::from(LogicalTypeId::Double));
-        bind.add_result_column("load_5m", LogicalTypeHandle::from(LogicalTypeId::Double));
-        bind.add_result_column("load_15m", LogicalTypeHandle::from(LogicalTypeId::Double));
-        Ok(ResourcesBindData)
-    }
-
-    fn init(_: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        let mut sys = System::new_with_specifics(
-            RefreshKind::new()
-                .with_memory(MemoryRefreshKind::everything())
-                .with_cpu(CpuRefreshKind::everything())
-        );
-        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-        sys.refresh_all();
-        
-        let gb = 1_073_741_824.0;
-        let load = System::load_average();
-        
-        let total_gb = sys.total_memory() as f64 / gb;
-        let used_gb = sys.used_memory() as f64 / gb;
-        // available_memory() may return 0 on macOS, compute as fallback
-        let available = sys.available_memory() as f64 / gb;
-        let available_gb = if available > 0.0 { available } else { total_gb - used_gb };
-        
-        Ok(ResourcesInitData {
-            done: AtomicBool::new(false),
-            available_gb,
-            total_gb,
-            used_gb,
-            cpu_usage: sys.global_cpu_usage(),
-            cpu_count: sys.cpus().len() as u64,
-            load_1m: load.one,
-            load_5m: load.five,
-            load_15m: load.fifteen,
-        })
-    }
-
-    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
-        let init_data = func.get_init_data();
-        
-        if init_data.done.swap(true, Ordering::Relaxed) {
-            output.set_len(0);
-            return Ok(());
-        }
-        
-        output.flat_vector(0).as_mut_slice::<f64>()[0] = init_data.available_gb;
-        output.flat_vector(1).as_mut_slice::<f64>()[0] = init_data.total_gb;
-        output.flat_vector(2).as_mut_slice::<f64>()[0] = init_data.used_gb;
-        output.flat_vector(3).as_mut_slice::<f32>()[0] = init_data.cpu_usage;
-        output.flat_vector(4).as_mut_slice::<u64>()[0] = init_data.cpu_count;
-        output.flat_vector(5).as_mut_slice::<f64>()[0] = init_data.load_1m;
-        output.flat_vector(6).as_mut_slice::<f64>()[0] = init_data.load_5m;
-        output.flat_vector(7).as_mut_slice::<f64>()[0] = init_data.load_15m;
-        
-        output.set_len(1);
-        Ok(())
-    }
-
-    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        None
-    }
-}
 
 // ============================================================================
 // Estimate Table Function - sazgar_estimate(paths)

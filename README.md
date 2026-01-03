@@ -78,11 +78,11 @@
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
 | **Query Routing (v0.5.0)** - Requires `pip install sqlglot` | |
-| `sazgar_resources()`     | Current RAM, CPU, load - use in routing conditions!  |
-| `sazgar_estimate(path)`  | Estimate data size for paths       |
-| `sazgar_route(query, target)` | THE main function - route query with SQLGlot translation |
+| `sazgar_route(query, target)` | Route query with SQLGlot dialect translation |
 | `sazgar_translate(query, dialect)` | Direct SQL dialect translation via SQLGlot |
+| `sazgar_estimate(path)`  | Estimate data size for paths (for routing conditions) |
 | `sazgar_sqlglot()` | Check SQLGlot availability and version |
+| *Use ANY sazgar function for conditions!* | `sazgar_memory()`, `sazgar_load()`, `sazgar_cpu()`, etc. |
 
 ## Quick Start
 
@@ -161,39 +161,49 @@ SELECT translated_query FROM sazgar_route(
 -- └────────────────────────────────────────────────────────┘
 ```
 
-### Use Sazgar Functions as Routing Conditions
+### Use ANY Sazgar Function as Routing Conditions
 
-All sazgar functions work in SQL routing conditions!
+All 20+ sazgar functions work! Use DuckDB variables to compute target first:
 
 ```sql
--- Route based on available memory
-SELECT execute_sql FROM sazgar_route(
-  'SELECT * FROM big_table',
-  CASE 
-    WHEN (SELECT available_gb FROM sazgar_resources()) < 10 THEN 'postgres://remote/db'
+-- Route based on available memory (sazgar_memory returns MB by default)
+SET VARIABLE target = (
+  SELECT CASE 
+    WHEN total_memory - used_memory < 8000 THEN 'mysql://remote/db'  -- < 8GB
     ELSE 'local'
-  END
+  END FROM sazgar_memory()
 );
+SELECT translated_query FROM sazgar_route('SELECT x::int, name ILIKE ''%test%''', getvariable('target'));
+-- MySQL: SELECT CAST(x AS SIGNED), LOWER(name) LIKE LOWER('%test%')
 
--- Route based on data size
-SELECT execute_sql FROM sazgar_route(
-  'SELECT * FROM my_data',
-  CASE 
-    WHEN (SELECT estimated_gb FROM sazgar_estimate('/data/')) > 50 THEN 'postgres://bigserver/db'
+-- Route based on system load (sazgar_load)
+SET VARIABLE target = (
+  SELECT CASE 
+    WHEN load_1min > 5 THEN 'postgres://cluster/db'
     ELSE 'local'
-  END
+  END FROM sazgar_load()
 );
+SELECT translated_query FROM sazgar_route('SELECT STRUCT_PACK(a := 1)', getvariable('target'));
+-- PostgreSQL: SELECT STRUCT(1 AS a)
 
--- Complex conditions using multiple sazgar functions
-SELECT execute_sql FROM sazgar_route(
-  'SELECT * FROM analytics',
-  CASE 
-    WHEN (SELECT cpu_usage FROM sazgar_resources()) > 80 
-         OR (SELECT available_gb FROM sazgar_resources()) < 5 
-    THEN 'postgres://analytics-cluster/db'
+-- Route based on average CPU usage (sazgar_cpu - aggregate for multi-core)
+SET VARIABLE target = (
+  SELECT CASE 
+    WHEN avg(usage_percent) > 80 THEN 'bigquery://project/dataset'
     ELSE 'local'
-  END
+  END FROM sazgar_cpu()
 );
+SELECT translated_query FROM sazgar_route('SELECT EPOCH_MS(123456)', getvariable('target'));
+-- BigQuery: SELECT TIMESTAMP_MILLIS(123456)
+
+-- Route based on disk space (sazgar_disks)
+SET VARIABLE target = (
+  SELECT CASE 
+    WHEN available_gb < 20 THEN 'postgres://log-server/db'
+    ELSE 'local'
+  END FROM sazgar_disks() WHERE mount_point = '/'
+);
+SELECT translated_query FROM sazgar_route('SELECT * FROM logs', getvariable('target'));
 ```
 
 ### Supported Connection Strings
