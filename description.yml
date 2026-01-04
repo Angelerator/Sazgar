@@ -1,0 +1,59 @@
+extension:
+  name: sazgar
+  description: "System monitoring & intelligent SQL routing - 25+ table functions for CPU, memory, disk, network, processes, ports, Docker, GPU. Route queries to PostgreSQL, MySQL, ClickHouse with auto dialect translation."
+  version: 1.0.0
+  language: Rust
+  build: cargo
+  license: MIT
+  excluded_platforms: "wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw;linux_amd64_musl"
+  requires_toolchains: "rust;python3"
+  maintainers:
+    - Angelerator
+
+repo:
+  github: Angelerator/Sazgar
+  ref: be0899227bf08f3d6e28888e638477ef2ccb1757
+
+docs:
+  hello_world: |
+    -- System monitoring
+    SELECT * FROM sazgar_memory(unit := 'GB');
+    SELECT * FROM sazgar_cpu();
+    SELECT * FROM sazgar_load();
+    SELECT * FROM sazgar_disks(unit := 'GB');
+
+    -- Intelligent routing (route to remote when RAM < 2GB)
+    SELECT * FROM sazgar_target('mydb', 'postgres://user:pass@host/db');
+    SELECT * FROM sazgar_route(
+      'SELECT * FROM large_table',
+      'mydb',
+      '(SELECT available_memory FROM sazgar_memory(''GB'')) < 2',
+      ''
+    );
+  extended_description: |
+    Sazgar (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension for system monitoring and intelligent SQL query routing.
+
+    **System Monitoring (25+ functions):**
+    - `sazgar_system()` - Complete system overview
+    - `sazgar_memory(unit)` - RAM usage with unit conversion
+    - `sazgar_cpu()` - CPU information per core
+    - `sazgar_disks(unit)` - Disk usage and space
+    - `sazgar_network()` - Network interface statistics
+    - `sazgar_processes()` - Running processes
+    - `sazgar_ports(filter)` - Open network ports (Linux/macOS)
+    - `sazgar_docker()` - Docker containers
+    - `sazgar_services()` - System services (systemd/launchctl)
+    - `sazgar_load()` - System load averages
+    - `sazgar_gpu()` - NVIDIA GPU info (optional)
+    - `sazgar_uptime()`, `sazgar_users()`, `sazgar_environment()`, and more...
+
+    **Intelligent SQL Routing (NEW in v1.0.0):**
+    - `sazgar_target(name, connection_string)` - Register named database targets
+    - `sazgar_route(query, fallback, condition, remote_query)` - Route queries based on conditions
+    - Automatic SQL dialect translation via SQLGlot (DuckDB → PostgreSQL/MySQL/ClickHouse)
+    - Resource-based routing (RAM, CPU, load, disk space)
+    - Custom remote query support (bypass SQLGlot)
+
+    **Unit conversion:** bytes, KB, KiB, MB, MiB, GB, GiB, TB, TiB
+
+    **Cross-platform:** Linux, macOS, Windows | **Pure Rust**
