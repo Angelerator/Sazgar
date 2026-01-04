@@ -78,8 +78,7 @@
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
 | **Smart Routing (v0.6.0)** - Requires `pip install sqlglot` | |
-| `sazgar_route(query, fallback, condition)` | Route with auto dialect translation (SQLGlot) |
-| `sazgar_route_custom(query, fallback, condition, remote_query)` | Route with custom remote query (skip SQLGlot) |
+| `sazgar_route(query, fallback, condition, remote_query)` | Route query (use `''` for auto-translation) |
 | `sazgar_target(name, connection)` | Register named targets (secure credentials) |
 | `sazgar_targets()` | List all registered targets |
 | `sazgar_translate(query, dialect)` | Direct SQL dialect translation via SQLGlot |
@@ -184,19 +183,21 @@ SELECT * FROM sazgar_targets();
 |-----------|-------------|
 | `query` | Your SQL query (DuckDB dialect) |
 | `fallback` | Target name or connection string |
-| `condition` | SQL expression that returns TRUE to route, FALSE to stay local |
+| `condition` | SQL expression that returns TRUE to route |
+| `remote_query` | Custom query for remote (`''` = auto-translate via SQLGlot) |
 
 ### Always Route (No Condition)
 
 ```sql
--- Use 'TRUE' to always route to the target
-SELECT * FROM sazgar_route('SELECT * FROM users', 'tavana', 'TRUE');
+-- Use 'TRUE' to always route, '' for auto-translation
+SELECT * FROM sazgar_route('SELECT * FROM users', 'tavana', 'TRUE', '');
 
--- Useful for: testing, forced remote execution, or when you always want remote
-SELECT translated_query, execute_sql FROM sazgar_route(
-  'SELECT * FROM big_table',
-  'local_mysql',
-  'TRUE'  -- Always route to MySQL
+-- With custom remote query (skip SQLGlot)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM delta_scan(''az://...'')',
+  'tavana',
+  'TRUE',
+  'SELECT * FROM bronze.patents LIMIT 1000'  -- Custom remote query
 );
 ```
 
@@ -205,12 +206,12 @@ SELECT translated_query, execute_sql FROM sazgar_route(
 When your local and remote queries are completely different (e.g., local uses `delta_scan` but remote has a table):
 
 ```sql
--- Use sazgar_route_custom with a 4th parameter for the remote query
-SELECT * FROM sazgar_route_custom(
-  'SELECT * FROM delta_scan(''az://bucket/data'')',  -- Local query (won't be translated)
+-- Add a 4th parameter to provide a custom remote query (skips SQLGlot)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM delta_scan(''az://bucket/data'')',  -- Local query (ignored for remote)
   'tavana',                                           -- Target
   '(SELECT used_memory FROM sazgar_memory()) > 30000', -- Condition
-  'SELECT * FROM bronze.patents LIMIT 1000'           -- Remote query (used as-is, no SQLGlot)
+  'SELECT * FROM bronze.patents LIMIT 1000'           -- Remote query (used as-is)
 );
 -- translated_query: SELECT * FROM bronze.patents LIMIT 1000  ← No SQLGlot!
 ```
@@ -220,40 +221,44 @@ SELECT * FROM sazgar_route_custom(
 ```sql
 LOAD sazgar;
 
--- Route based on available memory (using sazgar_memory)
+-- Route based on available memory ('' = auto-translate)
 SELECT * FROM sazgar_route(
   'SELECT * FROM big_table',
-  'tavana',  -- Named target (no credentials exposed!)
-  '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4'
+  'tavana',
+  '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4',
+  ''
 );
 
--- Route based on system load (using sazgar_load)
+-- Route based on system load
 SELECT * FROM sazgar_route(
   'SELECT * FROM analytics',
   'prod_mysql',
-  '(SELECT load_1min FROM sazgar_load()) > 5'
+  '(SELECT load_1min FROM sazgar_load()) > 5',
+  ''
 );
 
--- Route based on CPU usage (using sazgar_cpu)
+-- Route based on CPU usage
 SELECT * FROM sazgar_route(
-  'SELECT STRUCT_PACK(a := 1)',
-  'bigquery://project/dataset',
-  '(SELECT avg(usage_percent) FROM sazgar_cpu()) > 80'
+  'SELECT x::int FROM users',
+  'mysql://host/db',
+  '(SELECT avg(usage_percent) FROM sazgar_cpu()) > 80',
+  ''
 );
 
 -- Combine multiple conditions
 SELECT * FROM sazgar_route(
   'SELECT * FROM critical_data',
   'tavana',
-  '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4 
-   OR (SELECT load_1min FROM sazgar_load()) > 10'
+  '(SELECT used_memory FROM sazgar_memory()) > 40000 OR (SELECT load_1min FROM sazgar_load()) > 10',
+  ''
 );
 
--- Route based on disk space (using sazgar_disks)
+-- Custom remote query (different schema on remote)
 SELECT * FROM sazgar_route(
-  'SELECT * FROM logs',
-  'postgres://log-server/db',
-  '(SELECT available_gb FROM sazgar_disks() WHERE mount_point = ''/'') < 20'
+  'SELECT * FROM delta_scan(''az://bucket/data'')',
+  'tavana',
+  '(SELECT used_memory FROM sazgar_memory()) > 30000',
+  'SELECT * FROM production.warehouse_data'  -- Custom remote query
 );
 ```
 
@@ -263,8 +268,9 @@ SELECT * FROM sazgar_route(
 -- To MySQL: x::int → CAST(x AS SIGNED), ILIKE → LOWER...LIKE LOWER
 SELECT translated_query FROM sazgar_route(
   'SELECT x::int, name ILIKE ''%test%'' FROM users',
-  'prod_mysql',
-  'TRUE'
+  'mysql://host/db',
+  'TRUE',
+  ''  -- Empty = auto-translate via SQLGlot
 );
 -- ┌───────────────────────────────────────────────────────────────────────┐
 -- │ SELECT CAST(x AS SIGNED), LOWER(name) LIKE LOWER('%test%') FROM users │
@@ -274,7 +280,8 @@ SELECT translated_query FROM sazgar_route(
 SELECT translated_query FROM sazgar_route(
   'SELECT EPOCH_MS(123456)',
   'bigquery://project/dataset',
-  'TRUE'
+  'TRUE',
+  ''
 );
 -- ┌─────────────────────────────────┐
 -- │ SELECT TIMESTAMP_MILLIS(123456) │
