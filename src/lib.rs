@@ -2393,6 +2393,11 @@ pub unsafe fn extension_entrypoint(con: Connection) -> Result<(), Box<dyn Error>
     con.register_table_function::<route::SmartRouteVTab>("sazgar_route")
         .expect("Failed to register sazgar_route table function");
     
+    // Custom routing: sazgar_route_custom(query, fallback, condition, remote_query)
+    // Use this when you want to provide a custom query for the remote (skips SQLGlot)
+    con.register_table_function::<route::CustomRouteVTab>("sazgar_route_custom")
+        .expect("Failed to register sazgar_route_custom table function");
+    
     // Named targets (secure credential storage)
     con.register_table_function::<route::TargetVTab>("sazgar_target")
         .expect("Failed to register sazgar_target table function");

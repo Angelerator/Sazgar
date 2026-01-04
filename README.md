@@ -78,7 +78,8 @@
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
 | **Smart Routing (v0.6.0)** - Requires `pip install sqlglot` | |
-| `sazgar_route(query, fallback, condition)` | THE one routing function - flexible conditions! |
+| `sazgar_route(query, fallback, condition)` | Route with auto dialect translation (SQLGlot) |
+| `sazgar_route_custom(query, fallback, condition, remote_query)` | Route with custom remote query (skip SQLGlot) |
 | `sazgar_target(name, connection)` | Register named targets (secure credentials) |
 | `sazgar_targets()` | List all registered targets |
 | `sazgar_translate(query, dialect)` | Direct SQL dialect translation via SQLGlot |
@@ -197,6 +198,21 @@ SELECT translated_query, execute_sql FROM sazgar_route(
   'local_mysql',
   'TRUE'  -- Always route to MySQL
 );
+```
+
+### Custom Remote Query (Skip SQLGlot)
+
+When your local and remote queries are completely different (e.g., local uses `delta_scan` but remote has a table):
+
+```sql
+-- Use sazgar_route_custom with a 4th parameter for the remote query
+SELECT * FROM sazgar_route_custom(
+  'SELECT * FROM delta_scan(''az://bucket/data'')',  -- Local query (won't be translated)
+  'tavana',                                           -- Target
+  '(SELECT used_memory FROM sazgar_memory()) > 30000', -- Condition
+  'SELECT * FROM bronze.patents LIMIT 1000'           -- Remote query (used as-is, no SQLGlot)
+);
+-- translated_query: SELECT * FROM bronze.patents LIMIT 1000  ← No SQLGlot!
 ```
 
 ### Flexible Conditions with ANY Sazgar Function

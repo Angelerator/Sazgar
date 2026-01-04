@@ -405,6 +405,7 @@ pub struct SmartRouteBindData {
     query: String,
     fallback: String,
     condition: String,
+    remote_query: Option<String>,  // Optional: use this instead of translating query
 }
 
 #[repr(C)]
@@ -439,6 +440,13 @@ impl VTab for SmartRouteVTab {
         } else {
             "FALSE".to_string() // Default: don't route
         };
+        // 4th parameter: optional remote_query override (skips SQLGlot translation)
+        let remote_query = if bind.get_parameter_count() > 3 {
+            let rq = bind.get_parameter(3).to_string().trim_matches('"').to_string();
+            if rq.is_empty() { None } else { Some(rq) }
+        } else {
+            None
+        };
         
         bind.add_result_column("query", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("condition", LogicalTypeHandle::from(LogicalTypeId::Varchar));
@@ -449,7 +457,7 @@ impl VTab for SmartRouteVTab {
         bind.add_result_column("execute_sql", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         bind.add_result_column("error", LogicalTypeHandle::from(LogicalTypeId::Varchar));
         
-        Ok(SmartRouteBindData { query, fallback, condition })
+        Ok(SmartRouteBindData { query, fallback, condition, remote_query })
     }
 
     fn init(info: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
@@ -457,6 +465,7 @@ impl VTab for SmartRouteVTab {
         let query = unsafe { (*bind).query.clone() };
         let fallback_input = unsafe { (*bind).fallback.clone() };
         let condition = unsafe { (*bind).condition.clone() };
+        let remote_query = unsafe { (*bind).remote_query.clone() };
         
         // Resolve fallback: check if it's a named target
         let (fallback, conn_info) = {
@@ -473,9 +482,14 @@ impl VTab for SmartRouteVTab {
         // happens when the user wraps this in a CASE or WITH clause.
         let condition_result = false; // Placeholder - actual eval done in SQL
         
-        let (translated_query, error) = if conn_info.is_local {
+        // If remote_query is provided, use it directly (skip SQLGlot translation)
+        let (translated_query, error) = if let Some(ref rq) = remote_query {
+            // Use remote_query as-is, no translation needed
+            (rq.clone(), String::new())
+        } else if conn_info.is_local {
             (query.clone(), String::new())
         } else {
+            // Normal path: translate query using SQLGlot
             match sqlglot_transpile(&query, &conn_info.dialect) {
                 Ok(t) => (t, String::new()),
                 Err(e) => (query.clone(), e),
@@ -530,10 +544,77 @@ impl VTab for SmartRouteVTab {
     }
 
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        // 3-param version (no remote_query override)
         Some(vec![
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // query
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // fallback
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // condition
+        ])
+    }
+}
+
+// ============================================================================
+// sazgar_route_custom() - Route with custom remote query (skip SQLGlot)
+// ============================================================================
+
+pub struct CustomRouteVTab;
+
+impl VTab for CustomRouteVTab {
+    type InitData = SmartRouteInitData;
+    type BindData = SmartRouteBindData;
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        let query = bind.get_parameter(0).to_string().trim_matches('"').to_string();
+        let fallback = bind.get_parameter(1).to_string().trim_matches('"').to_string();
+        let condition = bind.get_parameter(2).to_string().trim_matches('"').to_string();
+        let remote_query = {
+            let rq = bind.get_parameter(3).to_string().trim_matches('"').to_string();
+            if rq.is_empty() { None } else { Some(rq) }
+        };
+        
+        bind.add_result_column("query", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("condition", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("condition_result", LogicalTypeHandle::from(LogicalTypeId::Boolean));
+        bind.add_result_column("routed_to", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("dialect", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("translated_query", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("execute_sql", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        bind.add_result_column("error", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        
+        Ok(SmartRouteBindData { query, fallback, condition, remote_query })
+    }
+
+    fn init(info: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        // Reuse SmartRouteVTab::init logic
+        SmartRouteVTab::init(info)
+    }
+
+    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
+        let init = func.get_init_data();
+        if init.done.swap(true, Ordering::Relaxed) {
+            output.set_len(0);
+            return Ok(());
+        }
+        
+        output.flat_vector(0).insert(0, CString::new(init.query.clone())?);
+        output.flat_vector(1).insert(0, CString::new(init.condition.clone())?);
+        output.flat_vector(2).as_mut_slice::<bool>()[0] = init.condition_result;
+        output.flat_vector(3).insert(0, CString::new(init.routed_to.clone())?);
+        output.flat_vector(4).insert(0, CString::new(init.dialect.clone())?);
+        output.flat_vector(5).insert(0, CString::new(init.translated_query.clone())?);
+        output.flat_vector(6).insert(0, CString::new(init.execute_sql.clone())?);
+        output.flat_vector(7).insert(0, CString::new(init.error.clone())?);
+        output.set_len(1);
+        Ok(())
+    }
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        // 4-param version with remote_query
+        Some(vec![
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // query
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // fallback
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // condition
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // remote_query (custom query for remote)
         ])
     }
 }
