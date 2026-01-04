@@ -157,7 +157,10 @@ WHERE rx > 0;
 ### Requirements
 
 ```bash
-pip install sqlglot   # Required for dialect translation (auto-installs if Python exists)
+# Only required if using auto-translation (empty remote_query)
+pip install sqlglot
+
+# NOT required if you always provide custom remote_query
 ```
 
 ### Secure Credentials with Named Targets
@@ -184,7 +187,7 @@ SELECT * FROM sazgar_targets();
 | `query` | Your SQL query (DuckDB dialect) |
 | `fallback` | Target name or connection string |
 | `condition` | SQL expression that returns TRUE to route |
-| `remote_query` | Custom query for remote (`''` = auto-translate via SQLGlot) |
+| `remote_query` | `''` = auto-translate (requires SQLGlot), or custom query (no Python needed) |
 
 ### Always Route (No Condition)
 
@@ -201,20 +204,22 @@ SELECT * FROM sazgar_route(
 );
 ```
 
-### Custom Remote Query (Skip SQLGlot)
+### Custom Remote Query (No Python/SQLGlot Required)
 
-When your local and remote queries are completely different (e.g., local uses `delta_scan` but remote has a table):
+When you provide a custom `remote_query`, **no Python or SQLGlot is needed** - the query is used directly:
 
 ```sql
--- Add a 4th parameter to provide a custom remote query (skips SQLGlot)
+-- Custom remote query = no translation, no Python required
 SELECT * FROM sazgar_route(
   'SELECT * FROM delta_scan(''az://bucket/data'')',  -- Local query (ignored for remote)
   'tavana',                                           -- Target
   '(SELECT used_memory FROM sazgar_memory()) > 30000', -- Condition
-  'SELECT * FROM bronze.patents LIMIT 1000'           -- Remote query (used as-is)
+  'SELECT * FROM bronze.patents LIMIT 1000'           -- Used directly, no SQLGlot
 );
--- translated_query: SELECT * FROM bronze.patents LIMIT 1000  ← No SQLGlot!
+-- translated_query: SELECT * FROM bronze.patents LIMIT 1000
 ```
+
+**Note:** SQLGlot/Python is only required when `remote_query` is `''` (empty) for auto-translation.
 
 ### Flexible Conditions with ANY Sazgar Function
 
