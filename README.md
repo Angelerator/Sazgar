@@ -3,8 +3,16 @@
 [![DuckDB Community Extension](https://img.shields.io/badge/DuckDB-Community%20Extension-yellow?logo=duckdb)](https://duckdb.org/community_extensions/extensions/sazgar)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Angelerator/Sazgar)](https://github.com/Angelerator/Sazgar/stargazers)
+[![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/Angelerator/Sazgar/releases)
 
-**Sazgar** (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension for system resource monitoring and **SQL query routing with dialect translation**. Built in pure Rust, it provides SQL table functions to query CPU, memory, disk, network, processes, and more. **v0.5.0** introduces a simplified routing API that works seamlessly with native DuckDB extensions (postgres, mysql, bigquery, snowflake) - you ATTACH databases directly, and Sazgar handles SQL dialect translation.
+**Sazgar** (Persian: سازگار, meaning "compatible/harmonious") is a comprehensive DuckDB extension providing **25+ table functions** for system monitoring and **intelligent SQL query routing** with automatic dialect translation.
+
+### ✨ Key Features
+- **System Monitoring**: CPU, memory, disk, network, processes, ports, Docker, GPU, services
+- **Smart Routing**: Route queries to PostgreSQL, MySQL, ClickHouse, Snowflake, BigQuery based on conditions
+- **Auto Dialect Translation**: Write DuckDB SQL → auto-converts to target database dialect via SQLGlot
+- **Resource-Based Routing**: Route when RAM is low, CPU is high, or any custom condition
+- **Pure Rust**: Cross-platform (Linux, macOS, Windows), no C/C++ dependencies
 
 > **Install:** `INSTALL sazgar FROM community;` • **Load:** `LOAD sazgar;`
 
