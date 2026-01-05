@@ -1,32 +1,14 @@
-//! Sazgar Smart Routing Module v0.6.0
+//! Sazgar Smart Routing Module v1.0.0
 //!
-//! ONE function for all routing: `sazgar_route(query, fallback, condition)`
+//! Routes queries to remote databases and returns actual data.
 //!
-//! ## Requirements
-//! - Python 3 with SQLGlot: `pip install sqlglot`
-//!
-//! ## Secure Credentials
-//! Register named targets once, use by name forever:
+//! ## Usage
 //! ```sql
-//! -- Register target (credentials stored in memory, not in queries)
-//! SELECT * FROM sazgar_target('tavana', 'host=tavana.example.com port=443 password=***');
-//! SELECT * FROM sazgar_target('prod_mysql', 'mysql://user:pass@host/db');
+//! -- Register a target
+//! SELECT * FROM sazgar_target('tavana', 'host=tavana.example.com port=443 user=x password=y sslmode=require');
 //!
-//! -- Then use by name (no credentials in query!)
-//! SELECT * FROM sazgar_route(
-//!   query := 'SELECT * FROM big_table',
-//!   fallback := 'tavana',  -- Just the name!
-//!   condition := '(SELECT available_memory FROM sazgar_memory(''GB'')) < 2'
-//! );
-//! ```
-//!
-//! ## Direct Connection (for quick testing)
-//! ```sql
-//! SELECT * FROM sazgar_route(
-//!   query := 'SELECT * FROM table',
-//!   fallback := 'postgres://user:pass@host/db',
-//!   condition := '(SELECT load_1min FROM sazgar_load()) > 5'
-//! );
+//! -- Execute query on remote target and get actual data back
+//! SELECT * FROM sazgar_route('SELECT * FROM users LIMIT 10', 'tavana', 'TRUE', '');
 //! ```
 
 use duckdb::{
@@ -40,8 +22,16 @@ use std::{
     sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock},
 };
 
+// PostgreSQL client
+use postgres::{Client, NoTls};
+use postgres::types::Type as PgType;
+
+// For SSL connections
+use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+use postgres_openssl::MakeTlsConnector;
+
 // ============================================================================
-// Global Target Registry (for secure credential storage)
+// Global Target Registry
 // ============================================================================
 
 lazy_static::lazy_static! {
@@ -72,7 +62,6 @@ impl TargetConfig {
 // SQLGlot Integration
 // ============================================================================
 
-/// Translate SQL from DuckDB dialect to target dialect using SQLGlot
 pub fn sqlglot_transpile(sql: &str, to_dialect: &str) -> Result<String, String> {
     let to = to_dialect.to_lowercase();
     if to == "duckdb" || to == "duck" || to.is_empty() {
@@ -92,11 +81,6 @@ pub fn sqlglot_transpile(sql: &str, to_dialect: &str) -> Result<String, String> 
         "hive" => "hive",
         "presto" => "presto",
         "trino" => "trino",
-        "athena" => "athena",
-        "redshift" => "redshift",
-        "teradata" => "teradata",
-        "doris" => "doris",
-        "starrocks" => "starrocks",
         other => other,
     };
     
@@ -112,49 +96,15 @@ pub fn sqlglot_transpile(sql: &str, to_dialect: &str) -> Result<String, String> 
         .or_else(|_| Command::new("python").args(["-c", &python_code]).output());
     
     match result {
-        Ok(output) => {
-            if output.status.success() {
-                let translated = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                Ok(if translated.is_empty() { sql.to_string() } else { translated })
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if stderr.contains("No module named 'sqlglot'") {
-                    // Try auto-install
-                    match auto_install_sqlglot() {
-                        Ok(_) => {
-                            // Retry after install
-                            let retry = Command::new("python3")
-                                .args(["-c", &python_code])
-                                .output()
-                                .or_else(|_| Command::new("python").args(["-c", &python_code]).output());
-                            match retry {
-                                Ok(r) if r.status.success() => {
-                                    Ok(String::from_utf8_lossy(&r.stdout).trim().to_string())
-                                }
-                                _ => Err("SQLGlot installed but translation failed".to_string()),
-                            }
-                        }
-                        Err(e) => Err(format!("SQLGlot not installed: {}. Run: pip install sqlglot", e)),
-                    }
-                } else {
-                    Err(format!("SQLGlot error: {}", stderr.trim()))
-                }
-            }
+        Ok(output) if output.status.success() => {
+            let translated = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Ok(if translated.is_empty() { sql.to_string() } else { translated })
         }
-        Err(e) => Err(format!("Python not found: {}", e)),
-    }
-}
-
-fn auto_install_sqlglot() -> Result<String, String> {
-    let install = Command::new("python3")
-        .args(["-m", "pip", "install", "--user", "--quiet", "sqlglot"])
-        .output()
-        .or_else(|_| Command::new("pip3").args(["install", "--user", "--quiet", "sqlglot"]).output());
-    
-    match install {
-        Ok(o) if o.status.success() => Ok("SQLGlot installed".to_string()),
-        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
-        Err(e) => Err(e.to_string()),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("SQLGlot error: {}", stderr.trim()))
+        }
+        Err(_) => Ok(sql.to_string()), // Fall back to original if Python not available
     }
 }
 
@@ -168,13 +118,7 @@ pub fn check_sqlglot() -> Result<String, String> {
     
     match result {
         Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).trim().to_string()),
-        Ok(_) => {
-            match auto_install_sqlglot() {
-                Ok(msg) => Ok(format!("{} (auto-installed)", msg)),
-                Err(e) => Err(format!("SQLGlot not available: {}", e)),
-            }
-        }
-        Err(_) => Err("Python not found".to_string()),
+        _ => Err("SQLGlot not available".to_string()),
     }
 }
 
@@ -183,6 +127,7 @@ pub fn check_sqlglot() -> Result<String, String> {
 // ============================================================================
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct ConnectionInfo {
     pub provider_type: String,
     pub dialect: String,
@@ -198,7 +143,7 @@ impl ConnectionInfo {
             return Self { provider_type: "duckdb".into(), dialect: "duckdb".into(), connection: "".into(), is_local: true };
         }
         
-        // PostgreSQL
+        // PostgreSQL detection
         if conn_str.starts_with("postgres://") || conn_str.starts_with("postgresql://") 
            || (conn_str.contains("host=") && conn_str.contains("port=")) {
             let is_tavana = conn_str.to_lowercase().contains("tavana");
@@ -216,34 +161,41 @@ impl ConnectionInfo {
         }
         
         // SQLite
-        if conn_str.starts_with("sqlite://") || conn_str.ends_with(".db") || conn_str.ends_with(".sqlite") {
+        if conn_str.ends_with(".db") || conn_str.ends_with(".sqlite") {
             return Self { provider_type: "sqlite".into(), dialect: "sqlite".into(), connection: conn_str.into(), is_local: false };
         }
         
-        // JDBC
-        if conn_str.starts_with("jdbc:") {
-            let dialect = if conn_str.contains("postgresql") { "postgres" }
-                else if conn_str.contains("mysql") { "mysql" }
-                else if conn_str.contains("oracle") { "oracle" }
-                else if conn_str.contains("sqlserver") { "tsql" }
-                else if conn_str.contains("snowflake") { "snowflake" }
-                else if conn_str.contains("bigquery") { "bigquery" }
-                else { "postgres" };
-            return Self { provider_type: "jdbc".into(), dialect: dialect.into(), connection: conn_str.into(), is_local: false };
-        }
-        
-        // BigQuery, Snowflake, ClickHouse
-        if conn_str.contains("bigquery") { return Self { provider_type: "bigquery".into(), dialect: "bigquery".into(), connection: conn_str.into(), is_local: false }; }
-        if conn_str.contains("snowflake") { return Self { provider_type: "snowflake".into(), dialect: "snowflake".into(), connection: conn_str.into(), is_local: false }; }
-        if conn_str.starts_with("clickhouse://") { return Self { provider_type: "clickhouse".into(), dialect: "clickhouse".into(), connection: conn_str.into(), is_local: false }; }
-        
-        // Default: local DuckDB file
         Self { provider_type: "duckdb".into(), dialect: "duckdb".into(), connection: conn_str.into(), is_local: conn_str.is_empty() }
     }
 }
 
 // ============================================================================
-// sazgar_target() - Register Named Targets (Secure Credentials)
+// PostgreSQL Connection Helper
+// ============================================================================
+
+fn connect_postgres(conn_str: &str) -> Result<Client, String> {
+    // Check if SSL/TLS is needed
+    let needs_ssl = conn_str.contains("sslmode=require") || 
+                    conn_str.contains("sslmode=verify") ||
+                    conn_str.contains("port=443");
+    
+    if needs_ssl {
+        // Create SSL connector that accepts any certificate (for dev/testing)
+        let mut builder = SslConnector::builder(SslMethod::tls())
+            .map_err(|e| format!("SSL builder error: {}", e))?;
+        builder.set_verify(SslVerifyMode::NONE);
+        let connector = MakeTlsConnector::new(builder.build());
+        
+        Client::connect(conn_str, connector)
+            .map_err(|e| format!("PostgreSQL connection failed: {}", e))
+    } else {
+        Client::connect(conn_str, NoTls)
+            .map_err(|e| format!("PostgreSQL connection failed: {}", e))
+    }
+}
+
+// ============================================================================
+// sazgar_target() - Register Named Targets
 // ============================================================================
 
 #[repr(C)]
@@ -289,7 +241,6 @@ impl VTab for TargetVTab {
         let connection_string = unsafe { (*bind).connection_string.clone() };
         
         let (dialect, provider, status) = if connection_string.is_empty() {
-            // Lookup mode
             let registry = TARGET_REGISTRY.read().unwrap();
             if let Some(target) = registry.get(&name) {
                 (target.dialect.clone(), target.provider_type.clone(), "found".to_string())
@@ -297,7 +248,6 @@ impl VTab for TargetVTab {
                 ("".to_string(), "".to_string(), "not_found".to_string())
             }
         } else {
-            // Register mode
             let target = TargetConfig::new(&name, &connection_string);
             let dialect = target.dialect.clone();
             let provider = target.provider_type.clone();
@@ -338,7 +288,7 @@ impl VTab for TargetVTab {
 }
 
 // ============================================================================
-// sazgar_targets() - List All Registered Targets
+// sazgar_targets() - List All Targets
 // ============================================================================
 
 #[repr(C)]
@@ -397,230 +347,365 @@ impl VTab for TargetsVTab {
 }
 
 // ============================================================================
-// sazgar_route() - THE ONE ROUTING FUNCTION
+// sazgar_route() - EXECUTE QUERY AND RETURN DATA
 // ============================================================================
 
-#[repr(C)]
-pub struct SmartRouteBindData {
-    query: String,
-    fallback: String,
-    condition: String,
-    remote_query: Option<String>,  // Optional: use this instead of translating query
+/// Type enum that we can Clone (since LogicalTypeId doesn't implement Clone)
+#[derive(Clone, Debug, Copy, PartialEq)]
+enum DuckType {
+    Boolean,
+    Smallint,
+    Integer,
+    Bigint,
+    Float,
+    Double,
+    Varchar,
+    Blob,
+    Date,
+    Time,
+    Timestamp,
+}
+
+impl DuckType {
+    fn to_logical_type(&self) -> LogicalTypeHandle {
+        match self {
+            DuckType::Boolean => LogicalTypeHandle::from(LogicalTypeId::Boolean),
+            DuckType::Smallint => LogicalTypeHandle::from(LogicalTypeId::Smallint),
+            DuckType::Integer => LogicalTypeHandle::from(LogicalTypeId::Integer),
+            DuckType::Bigint => LogicalTypeHandle::from(LogicalTypeId::Bigint),
+            DuckType::Float => LogicalTypeHandle::from(LogicalTypeId::Float),
+            DuckType::Double => LogicalTypeHandle::from(LogicalTypeId::Double),
+            DuckType::Varchar => LogicalTypeHandle::from(LogicalTypeId::Varchar),
+            DuckType::Blob => LogicalTypeHandle::from(LogicalTypeId::Blob),
+            DuckType::Date => LogicalTypeHandle::from(LogicalTypeId::Date),
+            DuckType::Time => LogicalTypeHandle::from(LogicalTypeId::Time),
+            DuckType::Timestamp => LogicalTypeHandle::from(LogicalTypeId::Timestamp),
+        }
+    }
+}
+
+/// Convert PostgreSQL type to our DuckType enum
+fn pg_type_to_duck(pg_type: &PgType) -> DuckType {
+    match *pg_type {
+        PgType::BOOL => DuckType::Boolean,
+        PgType::INT2 => DuckType::Smallint,
+        PgType::INT4 => DuckType::Integer,
+        PgType::INT8 => DuckType::Bigint,
+        PgType::FLOAT4 => DuckType::Float,
+        PgType::FLOAT8 | PgType::NUMERIC => DuckType::Double,
+        PgType::DATE => DuckType::Date,
+        PgType::TIME => DuckType::Time,
+        PgType::TIMESTAMP | PgType::TIMESTAMPTZ => DuckType::Timestamp,
+        PgType::BYTEA => DuckType::Blob,
+        _ => DuckType::Varchar, // Default to VARCHAR
+    }
+}
+
+/// Stores column metadata discovered from PostgreSQL
+#[derive(Clone, Debug)]
+struct ColumnMeta {
+    name: String,
+    duck_type: DuckType,
+    #[allow(dead_code)]
+    pg_type: PgType,  // Kept for future binary protocol support
+}
+
+/// Stores a row of data as strings (will be converted to proper types on output)
+#[derive(Clone, Debug)]
+struct DataRow {
+    values: Vec<String>,
 }
 
 #[repr(C)]
-pub struct SmartRouteInitData {
-    done: AtomicBool,
+pub struct RouteBindData {
     query: String,
-    fallback: String,
+    target_name: String,
     condition: String,
-    condition_result: bool,
-    routed_to: String,
-    dialect: String,
-    translated_query: String,
-    execute_sql: String,
-    error: String,
+    remote_query: String,
+    connection_string: String,
+    columns: Vec<ColumnMeta>,
+    error: Option<String>,
 }
 
-pub struct SmartRouteVTab;
+#[repr(C)]
+pub struct RouteInitData {
+    current_idx: AtomicUsize,
+    columns: Vec<ColumnMeta>,
+    rows: Vec<DataRow>,
+    error: Option<String>,
+}
 
-impl VTab for SmartRouteVTab {
-    type InitData = SmartRouteInitData;
-    type BindData = SmartRouteBindData;
+pub struct CustomRouteVTab;
+
+impl VTab for CustomRouteVTab {
+    type InitData = RouteInitData;
+    type BindData = RouteBindData;
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        // Parse parameters
         let query = bind.get_parameter(0).to_string().trim_matches('"').to_string();
-        let fallback = if bind.get_parameter_count() > 1 {
-            bind.get_parameter(1).to_string().trim_matches('"').to_string()
+        let target_name = bind.get_parameter(1).to_string().trim_matches('"').to_string();
+        let condition = bind.get_parameter(2).to_string().trim_matches('"').to_string();
+        let remote_query_param = bind.get_parameter(3).to_string().trim_matches('"').to_string();
+        
+        // Determine the query to execute
+        let remote_query = if remote_query_param.is_empty() {
+            query.clone()
         } else {
-            "local".to_string()
-        };
-        let condition = if bind.get_parameter_count() > 2 {
-            bind.get_parameter(2).to_string().trim_matches('"').to_string()
-        } else {
-            "FALSE".to_string() // Default: don't route
-        };
-        // 4th parameter: optional remote_query override (skips SQLGlot translation)
-        let remote_query = if bind.get_parameter_count() > 3 {
-            let rq = bind.get_parameter(3).to_string().trim_matches('"').to_string();
-            if rq.is_empty() { None } else { Some(rq) }
-        } else {
-            None
+            remote_query_param
         };
         
-        bind.add_result_column("query", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("condition", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("condition_result", LogicalTypeHandle::from(LogicalTypeId::Boolean));
-        bind.add_result_column("routed_to", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("dialect", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("translated_query", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("execute_sql", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("error", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+        // Resolve target connection string
+        let connection_string = {
+            let registry = TARGET_REGISTRY.read().unwrap();
+            if let Some(target) = registry.get(&target_name) {
+                target.connection_string.clone()
+            } else if target_name.contains("host=") || target_name.contains("://") {
+                target_name.clone()
+            } else {
+                return Err(format!("Target '{}' not found. Register it first with sazgar_target()", target_name).into());
+            }
+        };
         
-        Ok(SmartRouteBindData { query, fallback, condition, remote_query })
+        let conn_info = ConnectionInfo::parse(&connection_string);
+        
+        // Translate query if needed
+        let translated_query = if conn_info.dialect != "duckdb" && conn_info.dialect != "postgres" {
+            sqlglot_transpile(&remote_query, &conn_info.dialect).unwrap_or(remote_query.clone())
+        } else {
+            remote_query.clone()
+        };
+        
+        // Connect to PostgreSQL and discover schema
+        let (columns, error) = match connect_postgres(&connection_string) {
+            Ok(mut client) => {
+                // Execute query with LIMIT 0 to get schema only (for bind phase)
+                // But we also need to prepare for actual data fetch
+                let schema_query = format!("SELECT * FROM ({}) AS _sazgar_schema LIMIT 0", translated_query);
+                
+                match client.query(&schema_query, &[]) {
+                    Ok(rows) => {
+                        if rows.is_empty() {
+                            // Need to get columns from statement
+                            match client.prepare(&translated_query) {
+                                Ok(stmt) => {
+                                    let cols: Vec<ColumnMeta> = stmt.columns().iter().map(|c| {
+                                        ColumnMeta {
+                                            name: c.name().to_string(),
+                                            duck_type: pg_type_to_duck(c.type_()),
+                                            pg_type: c.type_().clone(),
+                                        }
+                                    }).collect();
+                                    (cols, None)
+                                }
+                                Err(e) => (vec![], Some(format!("Query preparation failed: {}", e)))
+                            }
+                        } else {
+                            // Get columns from first row's metadata
+                            let cols: Vec<ColumnMeta> = rows[0].columns().iter().map(|c| {
+                                ColumnMeta {
+                                    name: c.name().to_string(),
+                                    duck_type: pg_type_to_duck(c.type_()),
+                                    pg_type: c.type_().clone(),
+                                }
+                            }).collect();
+                            (cols, None)
+                        }
+                    }
+                    Err(e) => {
+                        // If LIMIT 0 fails, try prepare
+                        match client.prepare(&translated_query) {
+                            Ok(stmt) => {
+                                let cols: Vec<ColumnMeta> = stmt.columns().iter().map(|c| {
+                                    ColumnMeta {
+                                        name: c.name().to_string(),
+                                        duck_type: pg_type_to_duck(c.type_()),
+                                        pg_type: c.type_().clone(),
+                                    }
+                                }).collect();
+                                (cols, None)
+                            }
+                            Err(_) => (vec![], Some(format!("Query failed: {}", e)))
+                        }
+                    }
+                }
+            }
+            Err(e) => (vec![], Some(e))
+        };
+        
+        // If we have an error or no columns, add an error column
+        if columns.is_empty() {
+            bind.add_result_column("error", LogicalTypeHandle::from(LogicalTypeId::Varchar));
+            return Ok(RouteBindData {
+                query,
+                target_name,
+                condition,
+                remote_query: translated_query,
+                connection_string,
+                columns: vec![ColumnMeta {
+                    name: "error".to_string(),
+                    duck_type: DuckType::Varchar,
+                    pg_type: PgType::TEXT,
+                }],
+                error,
+            });
+        }
+        
+        // Add discovered columns to the result
+        for col in &columns {
+            bind.add_result_column(&col.name, col.duck_type.to_logical_type());
+        }
+        
+        Ok(RouteBindData {
+            query,
+            target_name,
+            condition,
+            remote_query: translated_query,
+            connection_string,
+            columns,
+            error,
+        })
     }
 
     fn init(info: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        let bind = info.get_bind_data::<SmartRouteBindData>();
-        let query = unsafe { (*bind).query.clone() };
-        let fallback_input = unsafe { (*bind).fallback.clone() };
-        let condition = unsafe { (*bind).condition.clone() };
+        let bind = info.get_bind_data::<RouteBindData>();
         let remote_query = unsafe { (*bind).remote_query.clone() };
+        let connection_string = unsafe { (*bind).connection_string.clone() };
+        let columns = unsafe { (*bind).columns.clone() };
+        let bind_error = unsafe { (*bind).error.clone() };
         
-        // Resolve fallback: check if it's a named target
-        let (fallback, conn_info) = {
-            let registry = TARGET_REGISTRY.read().unwrap();
-            if let Some(target) = registry.get(&fallback_input) {
-                (target.connection_string.clone(), ConnectionInfo::parse(&target.connection_string))
-            } else {
-                (fallback_input.clone(), ConnectionInfo::parse(&fallback_input))
+        // If there was an error in bind, return it
+        if let Some(err) = bind_error {
+            return Ok(RouteInitData {
+                current_idx: AtomicUsize::new(0),
+                columns: vec![ColumnMeta {
+                    name: "error".to_string(),
+                    duck_type: DuckType::Varchar,
+                    pg_type: PgType::TEXT,
+                }],
+                rows: vec![DataRow { values: vec![err] }],
+                error: None,
+            });
+        }
+        
+        // Execute the actual query using simple_query (text protocol)
+        // This is more compatible with DuckDB/Tavana than binary protocol
+        let rows = match connect_postgres(&connection_string) {
+            Ok(mut client) => {
+                match client.simple_query(&remote_query) {
+                    Ok(results) => {
+                        let mut data_rows: Vec<DataRow> = Vec::new();
+                        
+                        for result in results {
+                            if let postgres::SimpleQueryMessage::Row(row) = result {
+                                // simple_query returns SimpleQueryRow with text values
+                                let values: Vec<String> = (0..columns.len()).map(|idx| {
+                                    row.get(idx).unwrap_or("").to_string()
+                                }).collect();
+                                data_rows.push(DataRow { values });
+                            }
+                        }
+                        
+                        data_rows
+                    }
+                    Err(e) => {
+                        return Ok(RouteInitData {
+                            current_idx: AtomicUsize::new(0),
+                            columns: columns.clone(),
+                            rows: vec![],
+                            error: Some(format!("Query execution failed: {}", e)),
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                return Ok(RouteInitData {
+                    current_idx: AtomicUsize::new(0),
+                    columns: columns.clone(),
+                    rows: vec![],
+                    error: Some(e),
+                });
             }
         };
         
-        // Note: condition_result would be evaluated by DuckDB in actual execution
-        // For now, we prepare the routing info. The actual condition evaluation
-        // happens when the user wraps this in a CASE or WITH clause.
-        let condition_result = false; // Placeholder - actual eval done in SQL
-        
-        // If remote_query is provided, use it directly (skip SQLGlot translation)
-        let (translated_query, error) = if let Some(ref rq) = remote_query {
-            // Use remote_query as-is, no translation needed
-            (rq.clone(), String::new())
-        } else if conn_info.is_local {
-            (query.clone(), String::new())
-        } else {
-            // Normal path: translate query using SQLGlot
-            match sqlglot_transpile(&query, &conn_info.dialect) {
-                Ok(t) => (t, String::new()),
-                Err(e) => (query.clone(), e),
-            }
-        };
-        
-        let routed_to = if conn_info.is_local { "LOCAL".to_string() } else { fallback_input.clone() };
-        
-        let execute_sql = if conn_info.is_local {
-            translated_query.clone()
-        } else {
-            let escaped = translated_query.replace("'", "''");
-            match conn_info.provider_type.as_str() {
-                "postgres" => format!("SELECT * FROM postgres_query('{}', '{}')", fallback, escaped),
-                "mysql" => format!("SELECT * FROM mysql_query('{}', '{}')", fallback, escaped),
-                "sqlite" => format!("ATTACH '{}' AS _remote; {}", fallback, translated_query),
-                _ => translated_query.clone(),
-            }
-        };
-        
-        Ok(SmartRouteInitData {
-            done: AtomicBool::new(false),
-            query,
-            fallback,
-            condition,
-            condition_result,
-            routed_to,
-            dialect: conn_info.dialect,
-            translated_query,
-            execute_sql,
-            error,
+        Ok(RouteInitData {
+            current_idx: AtomicUsize::new(0),
+            columns,
+            rows,
+            error: None,
         })
     }
 
     fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
         let init = func.get_init_data();
-        if init.done.swap(true, Ordering::Relaxed) {
+        let current = init.current_idx.load(Ordering::Relaxed);
+        
+        // Check if we're done
+        if current >= init.rows.len() {
             output.set_len(0);
             return Ok(());
         }
         
-        output.flat_vector(0).insert(0, CString::new(init.query.clone())?);
-        output.flat_vector(1).insert(0, CString::new(init.condition.clone())?);
-        output.flat_vector(2).as_mut_slice::<bool>()[0] = init.condition_result;
-        output.flat_vector(3).insert(0, CString::new(init.routed_to.clone())?);
-        output.flat_vector(4).insert(0, CString::new(init.dialect.clone())?);
-        output.flat_vector(5).insert(0, CString::new(init.translated_query.clone())?);
-        output.flat_vector(6).insert(0, CString::new(init.execute_sql.clone())?);
-        output.flat_vector(7).insert(0, CString::new(init.error.clone())?);
-        output.set_len(1);
+        // Calculate batch size
+        let batch_size = std::cmp::min(2048, init.rows.len() - current);
+        
+        // Output rows
+        for i in 0..batch_size {
+            let row = &init.rows[current + i];
+            
+            for (col_idx, col) in init.columns.iter().enumerate() {
+                let value = row.values.get(col_idx).map(|s| s.as_str()).unwrap_or("");
+                
+                match col.duck_type {
+                    DuckType::Boolean => {
+                        let bool_val = value.eq_ignore_ascii_case("true") || value == "t" || value == "1";
+                        output.flat_vector(col_idx).as_mut_slice::<bool>()[i] = bool_val;
+                    }
+                    DuckType::Smallint => {
+                        let int_val: i16 = value.parse().unwrap_or(0);
+                        output.flat_vector(col_idx).as_mut_slice::<i16>()[i] = int_val;
+                    }
+                    DuckType::Integer => {
+                        let int_val: i32 = value.parse().unwrap_or(0);
+                        output.flat_vector(col_idx).as_mut_slice::<i32>()[i] = int_val;
+                    }
+                    DuckType::Bigint => {
+                        let int_val: i64 = value.parse().unwrap_or(0);
+                        output.flat_vector(col_idx).as_mut_slice::<i64>()[i] = int_val;
+                    }
+                    DuckType::Float => {
+                        let float_val: f32 = value.parse().unwrap_or(0.0);
+                        output.flat_vector(col_idx).as_mut_slice::<f32>()[i] = float_val;
+                    }
+                    DuckType::Double => {
+                        let float_val: f64 = value.parse().unwrap_or(0.0);
+                        output.flat_vector(col_idx).as_mut_slice::<f64>()[i] = float_val;
+                    }
+                    _ => {
+                        // VARCHAR and other types - insert as string
+                        output.flat_vector(col_idx).insert(i, CString::new(value)?);
+                    }
+                }
+            }
+        }
+        
+        init.current_idx.store(current + batch_size, Ordering::Relaxed);
+        output.set_len(batch_size);
         Ok(())
     }
 
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        // 3-param version (no remote_query override)
         Some(vec![
             LogicalTypeHandle::from(LogicalTypeId::Varchar),  // query
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // fallback
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // target
             LogicalTypeHandle::from(LogicalTypeId::Varchar),  // condition
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // remote_query (optional override)
         ])
     }
 }
 
 // ============================================================================
-// sazgar_route_custom() - Route with custom remote query (skip SQLGlot)
-// ============================================================================
-
-pub struct CustomRouteVTab;
-
-impl VTab for CustomRouteVTab {
-    type InitData = SmartRouteInitData;
-    type BindData = SmartRouteBindData;
-
-    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
-        let query = bind.get_parameter(0).to_string().trim_matches('"').to_string();
-        let fallback = bind.get_parameter(1).to_string().trim_matches('"').to_string();
-        let condition = bind.get_parameter(2).to_string().trim_matches('"').to_string();
-        let remote_query = {
-            let rq = bind.get_parameter(3).to_string().trim_matches('"').to_string();
-            if rq.is_empty() { None } else { Some(rq) }
-        };
-        
-        bind.add_result_column("query", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("condition", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("condition_result", LogicalTypeHandle::from(LogicalTypeId::Boolean));
-        bind.add_result_column("routed_to", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("dialect", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("translated_query", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("execute_sql", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        bind.add_result_column("error", LogicalTypeHandle::from(LogicalTypeId::Varchar));
-        
-        Ok(SmartRouteBindData { query, fallback, condition, remote_query })
-    }
-
-    fn init(info: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        // Reuse SmartRouteVTab::init logic
-        SmartRouteVTab::init(info)
-    }
-
-    fn func(func: &TableFunctionInfo<Self>, output: &mut DataChunkHandle) -> Result<(), Box<dyn std::error::Error>> {
-        let init = func.get_init_data();
-        if init.done.swap(true, Ordering::Relaxed) {
-            output.set_len(0);
-            return Ok(());
-        }
-        
-        output.flat_vector(0).insert(0, CString::new(init.query.clone())?);
-        output.flat_vector(1).insert(0, CString::new(init.condition.clone())?);
-        output.flat_vector(2).as_mut_slice::<bool>()[0] = init.condition_result;
-        output.flat_vector(3).insert(0, CString::new(init.routed_to.clone())?);
-        output.flat_vector(4).insert(0, CString::new(init.dialect.clone())?);
-        output.flat_vector(5).insert(0, CString::new(init.translated_query.clone())?);
-        output.flat_vector(6).insert(0, CString::new(init.execute_sql.clone())?);
-        output.flat_vector(7).insert(0, CString::new(init.error.clone())?);
-        output.set_len(1);
-        Ok(())
-    }
-
-    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        // 4-param version with remote_query
-        Some(vec![
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // query
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // fallback
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // condition
-            LogicalTypeHandle::from(LogicalTypeId::Varchar),  // remote_query (custom query for remote)
-        ])
-    }
-}
-
-// ============================================================================
-// sazgar_translate() - Direct SQL Translation (utility)
+// sazgar_translate() - Direct SQL Translation
 // ============================================================================
 
 #[repr(C)]
@@ -649,7 +734,7 @@ impl VTab for TranslateVTab {
         let to_dialect = if bind.get_parameter_count() > 1 {
             bind.get_parameter(1).to_string().trim_matches('"').to_string()
         } else {
-            "mysql".to_string()
+            "postgres".to_string()
         };
         
         bind.add_result_column("original", LogicalTypeHandle::from(LogicalTypeId::Varchar));
@@ -757,7 +842,7 @@ impl VTab for SqlglotVTab {
 }
 
 // ============================================================================
-// sazgar_estimate() - Estimate Data Size (for routing conditions)
+// sazgar_estimate() - Estimate Data Size
 // ============================================================================
 
 #[derive(Clone)]

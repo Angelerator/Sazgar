@@ -160,7 +160,15 @@ WHERE rx > 0;
 
 ## Smart Routing
 
-**ONE function for all routing in v0.6.0!** Use any sazgar function in conditions.
+**v1.0.0: `sazgar_route` now EXECUTES queries and RETURNS DATA!** Route queries to PostgreSQL-compatible databases and get actual results back to your local DuckDB.
+
+### What Changed in v1.0.0
+
+| Before (v0.6.0) | Now (v1.0.0) |
+|-----------------|--------------|
+| Returns metadata about routing | **Executes query, returns actual data** |
+| Required manual execution of `execute_sql` | **Single function call returns results** |
+| Schema fixed at 8 columns | **Dynamic schema based on query results** |
 
 ### Requirements
 
@@ -175,131 +183,140 @@ pip install sqlglot
 
 ```sql
 -- Register targets ONCE (credentials stored securely in memory)
-SELECT * FROM sazgar_target('tavana', 'host=tavana.example.com port=443 user=admin password=*** sslmode=require');
-SELECT * FROM sazgar_target('prod_mysql', 'mysql://user:***@prod-server/db');
+SELECT * FROM sazgar_target('tavana', 'host=tavana.example.com port=443 user=admin password=*** sslmode=require dbname=postgres');
+SELECT * FROM sazgar_target('prod_pg', 'host=prod.example.com port=5432 user=reader password=*** dbname=analytics');
 
 -- List registered targets
 SELECT * FROM sazgar_targets();
--- ┌────────────┬─────────┬──────────┐
--- │    name    │ dialect │ provider │
--- ├────────────┼─────────┼──────────┤
--- │ tavana     │ duckdb  │ postgres │
--- │ prod_mysql │ mysql   │ mysql    │
--- └────────────┴─────────┴──────────┘
+-- ┌──────────┬─────────┬──────────┐
+-- │   name   │ dialect │ provider │
+-- ├──────────┼─────────┼──────────┤
+-- │ tavana   │ duckdb  │ postgres │
+-- │ prod_pg  │ postgres│ postgres │
+-- └──────────┴─────────┴──────────┘
 ```
 
-### The ONE Function: `sazgar_route(query, fallback, condition)`
+### The ONE Function: `sazgar_route(query, target, condition, remote_query)`
 
 | Parameter | Description |
 |-----------|-------------|
-| `query` | Your SQL query (DuckDB dialect) |
-| `fallback` | Target name or connection string |
-| `condition` | SQL expression that returns TRUE to route |
-| `remote_query` | `''` = auto-translate (requires SQLGlot), or custom query (no Python needed) |
+| `query` | Your SQL query (DuckDB dialect) - used if routing locally or for translation |
+| `target` | Registered target name OR full connection string |
+| `condition` | SQL expression - currently used for documentation (routing always executes) |
+| `remote_query` | `''` = use `query` param (auto-translate if needed), or custom query for remote |
 
-### Always Route (No Condition)
+### Execute Query and Get Real Data
 
 ```sql
--- Use 'TRUE' to always route, '' for auto-translation
-SELECT * FROM sazgar_route('SELECT * FROM users', 'tavana', 'TRUE', '');
+-- Register your database target
+SELECT * FROM sazgar_target('tavana', 'host=tavana-dev.int.nokia.com port=443 user=admin password=*** sslmode=require dbname=postgres');
 
--- With custom remote query (skip SQLGlot)
+-- Execute query on remote target - GET ACTUAL DATA BACK!
+SELECT * FROM sazgar_route('SELECT 10 AS result', 'tavana', 'TRUE', '');
+-- ┌────────┐
+-- │ result │
+-- ├────────┤
+-- │     10 │
+-- └────────┘
+
+-- Query a remote table
+SELECT * FROM sazgar_route('SELECT * FROM users LIMIT 5', 'tavana', 'TRUE', '');
+-- Returns actual user data from the remote database!
+
+-- Use custom remote query (when schema differs)
 SELECT * FROM sazgar_route(
-  'SELECT * FROM delta_scan(''az://...'')',
+  'SELECT * FROM delta_scan(''az://...'')',  -- Local query (ignored when remote_query provided)
   'tavana',
   'TRUE',
-  'SELECT * FROM bronze.patents LIMIT 1000'  -- Custom remote query
+  'SELECT id, name, created_at FROM bronze.patents LIMIT 1000'  -- Executed on remote
 );
+-- Returns 1000 rows with id, name, created_at columns!
 ```
 
 ### Custom Remote Query (No Python/SQLGlot Required)
 
-When you provide a custom `remote_query`, **no Python or SQLGlot is needed** - the query is used directly:
+When you provide a custom `remote_query`, **no Python or SQLGlot is needed** - the query is executed directly on the remote database:
 
 ```sql
 -- Custom remote query = no translation, no Python required
+-- Returns actual data from the remote database!
 SELECT * FROM sazgar_route(
-  'SELECT * FROM delta_scan(''az://bucket/data'')',  -- Local query (ignored for remote)
+  'SELECT * FROM delta_scan(''az://bucket/data'')',  -- Local query (ignored when remote_query provided)
   'tavana',                                           -- Target
-  '(SELECT used_memory FROM sazgar_memory()) > 30000', -- Condition
-  'SELECT * FROM bronze.patents LIMIT 1000'           -- Used directly, no SQLGlot
+  'TRUE',                                             -- Condition
+  'SELECT * FROM bronze.patents LIMIT 1000'           -- Executed directly on remote
 );
--- translated_query: SELECT * FROM bronze.patents LIMIT 1000
+-- Returns 1000 rows from bronze.patents table!
 ```
 
 **Note:** SQLGlot/Python is only required when `remote_query` is `''` (empty) for auto-translation.
 
-### Flexible Conditions with ANY Sazgar Function
+### Real-World Examples
 
 ```sql
 LOAD sazgar;
 
--- Route based on available memory ('' = auto-translate)
+-- Query a remote PostgreSQL table directly
 SELECT * FROM sazgar_route(
-  'SELECT * FROM big_table',
+  'SELECT * FROM orders WHERE status = ''pending''',
   'tavana',
-  '(SELECT available_memory FROM sazgar_memory(''GB'')) < 4',
-  ''
+  'TRUE',
+  ''  -- Uses query param, auto-translates if needed
 );
+-- Returns actual pending orders from remote database!
 
--- Route based on system load
+-- Query with custom remote SQL (different table structure)
 SELECT * FROM sazgar_route(
-  'SELECT * FROM analytics',
-  'prod_mysql',
-  '(SELECT load_1min FROM sazgar_load()) > 5',
-  ''
-);
-
--- Route based on CPU usage
-SELECT * FROM sazgar_route(
-  'SELECT x::int FROM users',
-  'mysql://host/db',
-  '(SELECT avg(usage_percent) FROM sazgar_cpu()) > 80',
-  ''
-);
-
--- Combine multiple conditions
-SELECT * FROM sazgar_route(
-  'SELECT * FROM critical_data',
+  'SELECT * FROM delta_scan(''az://bucket/data'')',  -- Local version
   'tavana',
-  '(SELECT used_memory FROM sazgar_memory()) > 40000 OR (SELECT load_1min FROM sazgar_load()) > 10',
-  ''
+  'TRUE',
+  'SELECT * FROM production.warehouse_data LIMIT 100'  -- Remote version
 );
+-- Returns 100 rows from production.warehouse_data!
 
--- Custom remote query (different schema on remote)
+-- Simple query execution
+SELECT * FROM sazgar_route('SELECT 1+1 AS sum', 'prod_pg', 'TRUE', '');
+-- ┌─────┐
+-- │ sum │
+-- ├─────┤
+-- │   2 │
+-- └─────┘
+
+-- Query with aggregations
 SELECT * FROM sazgar_route(
-  'SELECT * FROM delta_scan(''az://bucket/data'')',
+  '',
   'tavana',
-  '(SELECT used_memory FROM sazgar_memory()) > 30000',
-  'SELECT * FROM production.warehouse_data'  -- Custom remote query
+  'TRUE',
+  'SELECT COUNT(*) as total, status FROM orders GROUP BY status'
 );
+-- Returns aggregated order counts by status!
 ```
 
 ### Dialect Translation (via SQLGlot)
 
+Use `sazgar_translate()` to preview SQL translations without executing:
+
 ```sql
--- To MySQL: x::int → CAST(x AS SIGNED), ILIKE → LOWER...LIKE LOWER
-SELECT translated_query FROM sazgar_route(
+-- Preview MySQL translation: x::int → CAST(x AS SIGNED)
+SELECT translated FROM sazgar_translate(
   'SELECT x::int, name ILIKE ''%test%'' FROM users',
-  'mysql://host/db',
-  'TRUE',
-  ''  -- Empty = auto-translate via SQLGlot
+  'mysql'
 );
 -- ┌───────────────────────────────────────────────────────────────────────┐
 -- │ SELECT CAST(x AS SIGNED), LOWER(name) LIKE LOWER('%test%') FROM users │
 -- └───────────────────────────────────────────────────────────────────────┘
 
--- To BigQuery: EPOCH_MS → TIMESTAMP_MILLIS
-SELECT translated_query FROM sazgar_route(
+-- Preview BigQuery translation: EPOCH_MS → TIMESTAMP_MILLIS
+SELECT translated FROM sazgar_translate(
   'SELECT EPOCH_MS(123456)',
-  'bigquery://project/dataset',
-  'TRUE',
-  ''
+  'bigquery'
 );
 -- ┌─────────────────────────────────┐
 -- │ SELECT TIMESTAMP_MILLIS(123456) │
 -- └─────────────────────────────────┘
 ```
+
+When using `sazgar_route()` with an empty `remote_query` parameter, translation is automatic.
 
 ### Direct SQL Translation (Utility)
 
