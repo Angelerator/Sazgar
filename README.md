@@ -1285,7 +1285,13 @@ make clean_all
 
 ### TLS Support
 
-TLS/SSL is **enabled by default** for secure connections to databases requiring `sslmode=require` or port 443. OpenSSL is provided via vcpkg during the build process.
+TLS/SSL is **enabled by default** for secure connections to databases requiring `sslmode=require` or port 443.
+
+To build **without TLS** (smaller binary, no OpenSSL dependency):
+
+```bash
+cargo build --release --no-default-features
+```
 
 ### Build Output
 

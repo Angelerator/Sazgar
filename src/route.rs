@@ -26,8 +26,10 @@ use std::{
 use postgres::{Client, NoTls};
 use postgres::types::Type as PgType;
 
-// TLS support for secure connections
+// TLS support for secure connections (enabled by default, disable with --no-default-features)
+#[cfg(feature = "tls")]
 use native_tls::TlsConnector;
+#[cfg(feature = "tls")]
 use postgres_native_tls::MakeTlsConnector;
 
 // ============================================================================
@@ -180,16 +182,23 @@ fn connect_postgres(conn_str: &str) -> Result<Client, String> {
                     conn_str.contains("port=443");
     
     if needs_ssl {
-        // Create TLS connector that accepts any certificate (for dev/testing)
-        let tls_builder = TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .danger_accept_invalid_hostnames(true)
-            .build()
-            .map_err(|e| format!("TLS builder error: {}", e))?;
-        let connector = MakeTlsConnector::new(tls_builder);
-        
-        Client::connect(conn_str, connector)
-            .map_err(|e| format!("PostgreSQL connection failed: {}", e))
+        #[cfg(feature = "tls")]
+        {
+            // Create TLS connector that accepts any certificate (for dev/testing)
+            let tls_builder = TlsConnector::builder()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build()
+                .map_err(|e| format!("TLS builder error: {}", e))?;
+            let connector = MakeTlsConnector::new(tls_builder);
+            
+            Client::connect(conn_str, connector)
+                .map_err(|e| format!("PostgreSQL connection failed: {}", e))
+        }
+        #[cfg(not(feature = "tls"))]
+        {
+            Err("TLS required but not compiled in. Build with default features or --features tls".to_string())
+        }
     } else {
         Client::connect(conn_str, NoTls)
             .map_err(|e| format!("PostgreSQL connection failed: {}", e))
