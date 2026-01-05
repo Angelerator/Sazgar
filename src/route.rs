@@ -27,8 +27,8 @@ use postgres::{Client, NoTls};
 use postgres::types::Type as PgType;
 
 // For SSL connections
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
-use postgres_openssl::MakeTlsConnector;
+use native_tls::TlsConnector;
+use postgres_native_tls::MakeTlsConnector;
 
 // ============================================================================
 // Global Target Registry
@@ -180,11 +180,13 @@ fn connect_postgres(conn_str: &str) -> Result<Client, String> {
                     conn_str.contains("port=443");
     
     if needs_ssl {
-        // Create SSL connector that accepts any certificate (for dev/testing)
-        let mut builder = SslConnector::builder(SslMethod::tls())
-            .map_err(|e| format!("SSL builder error: {}", e))?;
-        builder.set_verify(SslVerifyMode::NONE);
-        let connector = MakeTlsConnector::new(builder.build());
+        // Create TLS connector that accepts any certificate (for dev/testing)
+        let tls_builder = TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .build()
+            .map_err(|e| format!("TLS builder error: {}", e))?;
+        let connector = MakeTlsConnector::new(tls_builder);
         
         Client::connect(conn_str, connector)
             .map_err(|e| format!("PostgreSQL connection failed: {}", e))

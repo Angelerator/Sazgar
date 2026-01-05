@@ -29,8 +29,8 @@ sysinfo = "0.32"
 lazy_static = "1.5"
 # PostgreSQL client for query routing (execute queries on remote PG servers)
 postgres = { version = "0.19", features = ["with-chrono-0_4"] }
-postgres-openssl = "0.5"
-openssl = "0.10"
+postgres-native-tls = "0.5"
+native-tls = "0.2"
 chrono = "0.4"
 # For GPU monitoring (NVIDIA)
 nvml-wrapper = { version = "0.10", optional = true }
