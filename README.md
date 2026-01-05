@@ -9,10 +9,13 @@
 
 ### ✨ Key Features
 - **System Monitoring**: CPU, memory, disk, network, processes, ports, Docker, GPU, services
-- **Smart Routing**: Route queries to PostgreSQL, MySQL, ClickHouse, Snowflake, BigQuery based on conditions
+- **Smart Routing**: Execute queries on remote PostgreSQL-compatible databases and return actual data
 - **Auto Dialect Translation**: Write DuckDB SQL → auto-converts to target database dialect via SQLGlot
+- **Supported Backends**: PostgreSQL, Tavana, MySQL*, ClickHouse*, Snowflake*, BigQuery* (via PostgreSQL wire protocol)
 - **Resource-Based Routing**: Route when RAM is low, CPU is high, or any custom condition
 - **Pure Rust**: Cross-platform (Linux, macOS, Windows), no C/C++ dependencies
+
+> *MySQL, ClickHouse, Snowflake, BigQuery require PostgreSQL-compatible interface (e.g., via protocol adapter)
 
 > **Install:** `INSTALL sazgar FROM community;` • **Load:** `LOAD sazgar;`
 
