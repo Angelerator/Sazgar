@@ -88,7 +88,7 @@
 | `sazgar_gpu()`           | NVIDIA GPU info (optional feature)  |
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
-| **Smart Routing (v0.6.0)** - Requires `pip install sqlglot` | |
+| **Smart Routing (v1.0.0)** - Optional: `pip install sqlglot` for dialect translation | |
 | `sazgar_route(query, fallback, condition, remote_query)` | Route query (use `''` for auto-translation) |
 | `sazgar_target(name, connection)` | Register named targets (secure credentials) |
 | `sazgar_targets()` | List all registered targets |
