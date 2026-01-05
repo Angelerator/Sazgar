@@ -26,10 +26,8 @@ use std::{
 use postgres::{Client, NoTls};
 use postgres::types::Type as PgType;
 
-// For SSL connections (optional feature)
-#[cfg(feature = "tls")]
+// TLS support for secure connections
 use native_tls::TlsConnector;
-#[cfg(feature = "tls")]
 use postgres_native_tls::MakeTlsConnector;
 
 // ============================================================================
@@ -182,30 +180,16 @@ fn connect_postgres(conn_str: &str) -> Result<Client, String> {
                     conn_str.contains("port=443");
     
     if needs_ssl {
-        #[cfg(feature = "tls")]
-        {
-            // Create TLS connector that accepts any certificate (for dev/testing)
-            let tls_builder = TlsConnector::builder()
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true)
-                .build()
-                .map_err(|e| format!("TLS builder error: {}", e))?;
-            let connector = MakeTlsConnector::new(tls_builder);
-            
-            Client::connect(conn_str, connector)
-                .map_err(|e| format!("PostgreSQL connection failed: {}", e))
-        }
-        #[cfg(not(feature = "tls"))]
-        {
-            // TLS not available - try without SSL (remove sslmode from connection string)
-            let conn_str_no_ssl = conn_str
-                .replace("sslmode=require", "sslmode=disable")
-                .replace("sslmode=verify-full", "sslmode=disable")
-                .replace("sslmode=verify-ca", "sslmode=disable");
-            
-            Client::connect(&conn_str_no_ssl, NoTls)
-                .map_err(|e| format!("PostgreSQL connection failed (TLS not available, tried without SSL): {}", e))
-        }
+        // Create TLS connector that accepts any certificate (for dev/testing)
+        let tls_builder = TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .build()
+            .map_err(|e| format!("TLS builder error: {}", e))?;
+        let connector = MakeTlsConnector::new(tls_builder);
+        
+        Client::connect(conn_str, connector)
+            .map_err(|e| format!("PostgreSQL connection failed: {}", e))
     } else {
         Client::connect(conn_str, NoTls)
             .map_err(|e| format!("PostgreSQL connection failed: {}", e))

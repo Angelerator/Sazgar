@@ -1283,21 +1283,9 @@ make clean
 make clean_all
 ```
 
-### Building with TLS Support
+### TLS Support
 
-By default, the extension is built **without TLS** for maximum CI compatibility.
-To enable TLS/SSL connections to databases (required for `sslmode=require` or port 443):
-
-```bash
-# Build with TLS support (requires OpenSSL on Linux)
-cargo build --release --features tls
-
-# Then use make to create the .duckdb_extension file
-make release
-```
-
-**Note:** TLS is optional because DuckDB's CI environment lacks OpenSSL development headers.
-Users connecting to SSL-required databases should build locally with the `tls` feature.
+TLS/SSL is **enabled by default** for secure connections to databases requiring `sslmode=require` or port 443. OpenSSL is provided via vcpkg during the build process.
 
 ### Build Output
 
