@@ -42,6 +42,6 @@ nvml-wrapper = { version = "0.10", optional = true }
 netstat2 = "0.11"
 
 [features]
-default = ["tls"]
+default = []
 tls = ["postgres-native-tls", "native-tls", "openssl"]
 nvidia = ["nvml-wrapper"]

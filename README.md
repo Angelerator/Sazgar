@@ -1285,13 +1285,15 @@ make clean_all
 
 ### TLS Support
 
-TLS/SSL is **enabled by default** for secure connections to databases requiring `sslmode=require` or port 443.
-
-To build **without TLS** (smaller binary, no OpenSSL dependency):
+TLS/SSL is **optional** due to CI environment limitations. To build with TLS for secure connections (`sslmode=require` or port 443):
 
 ```bash
-cargo build --release --no-default-features
+# Build with TLS support
+cargo build --release --features tls
+make release
 ```
+
+Community builds from `INSTALL sazgar FROM community` do **not** include TLS. Users connecting to SSL-required databases should build locally with the `tls` feature.
 
 ### Build Output
 

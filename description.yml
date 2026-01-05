@@ -286,7 +286,7 @@ docs:
     - ✅ **Supported backends** - PostgreSQL, Tavana, MySQL*, ClickHouse*, Snowflake*, BigQuery*
     - ✅ **Conditional routing** - Route based on system resources
     - ✅ **JOIN support** - Combine remote data with local DuckDB tables
-    - ✅ **TLS enabled** - Secure connections by default
+    - ✅ **Optional TLS** - Build with `--features tls` for secure connections
     
     > *Non-PostgreSQL backends require PostgreSQL-compatible interface (e.g., protocol adapter)
 
