@@ -286,7 +286,7 @@ docs:
     - ✅ **Supported backends** - PostgreSQL, Tavana, MySQL*, ClickHouse*, Snowflake*, BigQuery*
     - ✅ **Conditional routing** - Route based on system resources
     - ✅ **JOIN support** - Combine remote data with local DuckDB tables
-    - ✅ **TLS enabled by default** - Secure connections for sslmode=require
+    - ✅ **Optional TLS** - Secure connections (build with `--features tls`)
     
     > *Non-PostgreSQL backends require PostgreSQL-compatible interface (e.g., protocol adapter)
 
@@ -330,16 +330,21 @@ docs:
 
     ---
 
-    ## 🛠️ Building from Source
+    ## 🛠️ Building with TLS Support
+
+    Community builds exclude TLS for CI compatibility. For SSL database connections:
 
     ```bash
+    # Clone the repository
     git clone https://github.com/Angelerator/Sazgar.git
     cd Sazgar
-    make configure
+
+    # Build with TLS support
+    cargo build --release --features tls
+
+    # Create extension
     make release
     ```
-
-    TLS/SSL is enabled by default for secure database connections.
 
     ---
 

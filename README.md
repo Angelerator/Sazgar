@@ -88,7 +88,7 @@
 | `sazgar_gpu()`           | NVIDIA GPU info (optional feature)  |
 | `sazgar_fds(pid)`        | File descriptor counts (Linux)      |
 | `sazgar_version()`       | Extension version                   |
-| **Smart Routing (v1.0.0)** - Optional: `pip install sqlglot` for dialect translation | |
+| **Smart Routing (v0.6.0)** - Requires `pip install sqlglot` | |
 | `sazgar_route(query, fallback, condition, remote_query)` | Route query (use `''` for auto-translation) |
 | `sazgar_target(name, connection)` | Register named targets (secure credentials) |
 | `sazgar_targets()` | List all registered targets |
@@ -1283,14 +1283,21 @@ make clean
 make clean_all
 ```
 
-### TLS/SSL Support
+### Building with TLS Support
 
-TLS is **enabled by default** for secure database connections. The extension automatically uses TLS when:
-- Connection string contains `sslmode=require`
-- Connection string contains `sslmode=verify`
-- Connection uses port 443
+By default, the extension is built **without TLS** for maximum CI compatibility.
+To enable TLS/SSL connections to databases (required for `sslmode=require` or port 443):
 
-No additional configuration is needed for SSL connections.
+```bash
+# Build with TLS support (requires OpenSSL on Linux)
+cargo build --release --features tls
+
+# Then use make to create the .duckdb_extension file
+make release
+```
+
+**Note:** TLS is optional because DuckDB's CI environment lacks OpenSSL development headers.
+Users connecting to SSL-required databases should build locally with the `tls` feature.
 
 ### Build Output
 
