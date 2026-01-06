@@ -22,15 +22,67 @@ use std::{
     sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, RwLock},
 };
 
-// PostgreSQL client
-use postgres::{Client, NoTls};
-use postgres::types::Type as PgType;
+// PostgreSQL client (async with rustls TLS - no OpenSSL dependency)
+use tokio::runtime::Runtime;
+use tokio_postgres::{Client, NoTls, SimpleQueryMessage};
+use tokio_postgres::types::Type as PgType;
 
-// TLS support for secure connections (enabled by default, disable with --no-default-features)
-#[cfg(feature = "tls")]
-use native_tls::TlsConnector;
-#[cfg(feature = "tls")]
-use postgres_native_tls::MakeTlsConnector;
+// Pure Rust TLS (works in CI without OpenSSL)
+use rustls::ClientConfig;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{DigitallySignedStruct, SignatureScheme};
+use tokio_postgres_rustls::MakeRustlsConnect;
+
+/// Certificate verifier that accepts any certificate (for dev/testing)
+#[derive(Debug)]
+struct NoVerifier;
+
+impl ServerCertVerifier for NoVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::ED25519,
+        ]
+    }
+}
 
 // ============================================================================
 // Global Target Registry
@@ -172,36 +224,131 @@ impl ConnectionInfo {
 }
 
 // ============================================================================
-// PostgreSQL Connection Helper
+// PostgreSQL Connection Helper (async with rustls TLS - no OpenSSL)
 // ============================================================================
 
-fn connect_postgres(conn_str: &str) -> Result<Client, String> {
-    // Check if SSL/TLS is needed
+/// Result of executing a query - contains rows and optional error
+struct QueryResult {
+    rows: Vec<DataRow>,
+    error: Option<String>,
+}
+
+/// Execute a query and return results using simple_query (text protocol)
+fn execute_postgres_query(conn_str: &str, query: &str) -> Result<QueryResult, String> {
+    let rt = Runtime::new().map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
+    
+    rt.block_on(async {
+        execute_postgres_query_async(conn_str, query).await
+    })
+}
+
+/// Get schema of a query without fetching data
+fn get_postgres_schema(conn_str: &str, query: &str) -> Result<Vec<ColumnMeta>, String> {
+    let rt = Runtime::new().map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
+    
+    rt.block_on(async {
+        get_postgres_schema_async(conn_str, query).await
+    })
+}
+
+async fn connect_postgres_async(conn_str: &str) -> Result<Client, String> {
     let needs_ssl = conn_str.contains("sslmode=require") || 
                     conn_str.contains("sslmode=verify") ||
                     conn_str.contains("port=443");
     
+    // Check if we should verify certificates
+    let verify_certs = conn_str.contains("sslmode=verify");
+    
     if needs_ssl {
-        #[cfg(feature = "tls")]
-        {
-            // Create TLS connector that accepts any certificate (for dev/testing)
-            let tls_builder = TlsConnector::builder()
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true)
-                .build()
-                .map_err(|e| format!("TLS builder error: {}", e))?;
-            let connector = MakeTlsConnector::new(tls_builder);
+        // Build rustls config
+        let tls_config = if verify_certs {
+            // Strict mode: verify certificates with Mozilla root store
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
             
-            Client::connect(conn_str, connector)
-                .map_err(|e| format!("PostgreSQL connection failed: {}", e))
-        }
-        #[cfg(not(feature = "tls"))]
-        {
-            Err("TLS required but not compiled in. Build with default features or --features tls".to_string())
-        }
+            ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth()
+        } else {
+            // Dev/testing mode: accept any certificate
+            ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(std::sync::Arc::new(NoVerifier))
+                .with_no_client_auth()
+        };
+        
+        let tls = MakeRustlsConnect::new(tls_config);
+        
+        let (client, connection) = tokio_postgres::connect(conn_str, tls).await
+            .map_err(|e| format!("PostgreSQL connection failed: {}", e))?;
+        
+        // Spawn the connection handler
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("PostgreSQL connection error: {}", e);
+            }
+        });
+        
+        Ok(client)
     } else {
-        Client::connect(conn_str, NoTls)
-            .map_err(|e| format!("PostgreSQL connection failed: {}", e))
+        let (client, connection) = tokio_postgres::connect(conn_str, NoTls).await
+            .map_err(|e| format!("PostgreSQL connection failed: {}", e))?;
+        
+        // Spawn the connection handler
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("PostgreSQL connection error: {}", e);
+            }
+        });
+        
+        Ok(client)
+    }
+}
+
+async fn get_postgres_schema_async(conn_str: &str, query: &str) -> Result<Vec<ColumnMeta>, String> {
+    let client = connect_postgres_async(conn_str).await?;
+    
+    // Try to prepare the statement to get column info
+    match client.prepare(query).await {
+        Ok(stmt) => {
+            let cols: Vec<ColumnMeta> = stmt.columns().iter().map(|c| {
+                ColumnMeta {
+                    name: c.name().to_string(),
+                    duck_type: pg_type_to_duck(c.type_()),
+                    pg_type: c.type_().clone(),
+                }
+            }).collect();
+            Ok(cols)
+        }
+        Err(e) => Err(format!("Failed to prepare query: {}", e))
+    }
+}
+
+async fn execute_postgres_query_async(conn_str: &str, query: &str) -> Result<QueryResult, String> {
+    let client = connect_postgres_async(conn_str).await?;
+    
+    // Use simple_query for text protocol (more compatible with DuckDB/Tavana)
+    match client.simple_query(query).await {
+        Ok(results) => {
+            let mut data_rows: Vec<DataRow> = Vec::new();
+            
+            for msg in results {
+                if let SimpleQueryMessage::Row(row) = msg {
+                    // Extract values as strings (text protocol)
+                    let values: Vec<String> = (0..row.columns().len())
+                        .map(|i| row.get(i).unwrap_or("").to_string())
+                        .collect();
+                    
+                    data_rows.push(DataRow { values });
+                }
+            }
+            
+            Ok(QueryResult { rows: data_rows, error: None })
+        }
+        Err(e) => Ok(QueryResult {
+            rows: vec![],
+            error: Some(format!("Query execution failed: {}", e)),
+        })
     }
 }
 
@@ -488,59 +635,8 @@ impl VTab for CustomRouteVTab {
         };
         
         // Connect to PostgreSQL and discover schema
-        let (columns, error) = match connect_postgres(&connection_string) {
-            Ok(mut client) => {
-                // Execute query with LIMIT 0 to get schema only (for bind phase)
-                // But we also need to prepare for actual data fetch
-                let schema_query = format!("SELECT * FROM ({}) AS _sazgar_schema LIMIT 0", translated_query);
-                
-                match client.query(&schema_query, &[]) {
-                    Ok(rows) => {
-                        if rows.is_empty() {
-                            // Need to get columns from statement
-                            match client.prepare(&translated_query) {
-                                Ok(stmt) => {
-                                    let cols: Vec<ColumnMeta> = stmt.columns().iter().map(|c| {
-                                        ColumnMeta {
-                                            name: c.name().to_string(),
-                                            duck_type: pg_type_to_duck(c.type_()),
-                                            pg_type: c.type_().clone(),
-                                        }
-                                    }).collect();
-                                    (cols, None)
-                                }
-                                Err(e) => (vec![], Some(format!("Query preparation failed: {}", e)))
-                            }
-                        } else {
-                            // Get columns from first row's metadata
-                            let cols: Vec<ColumnMeta> = rows[0].columns().iter().map(|c| {
-                                ColumnMeta {
-                                    name: c.name().to_string(),
-                                    duck_type: pg_type_to_duck(c.type_()),
-                                    pg_type: c.type_().clone(),
-                                }
-                            }).collect();
-                            (cols, None)
-                        }
-                    }
-                    Err(e) => {
-                        // If LIMIT 0 fails, try prepare
-                        match client.prepare(&translated_query) {
-                            Ok(stmt) => {
-                                let cols: Vec<ColumnMeta> = stmt.columns().iter().map(|c| {
-                                    ColumnMeta {
-                                        name: c.name().to_string(),
-                                        duck_type: pg_type_to_duck(c.type_()),
-                                        pg_type: c.type_().clone(),
-                                    }
-                                }).collect();
-                                (cols, None)
-                            }
-                            Err(_) => (vec![], Some(format!("Query failed: {}", e)))
-                        }
-                    }
-                }
-            }
+        let (columns, error) = match get_postgres_schema(&connection_string, &translated_query) {
+            Ok(cols) => (cols, None),
             Err(e) => (vec![], Some(e))
         };
         
@@ -601,33 +697,17 @@ impl VTab for CustomRouteVTab {
         
         // Execute the actual query using simple_query (text protocol)
         // This is more compatible with DuckDB/Tavana than binary protocol
-        let rows = match connect_postgres(&connection_string) {
-            Ok(mut client) => {
-                match client.simple_query(&remote_query) {
-                    Ok(results) => {
-                        let mut data_rows: Vec<DataRow> = Vec::new();
-                        
-                        for result in results {
-                            if let postgres::SimpleQueryMessage::Row(row) = result {
-                                // simple_query returns SimpleQueryRow with text values
-                                let values: Vec<String> = (0..columns.len()).map(|idx| {
-                                    row.get(idx).unwrap_or("").to_string()
-                                }).collect();
-                                data_rows.push(DataRow { values });
-                            }
-                        }
-                        
-                        data_rows
-                    }
-                    Err(e) => {
-                        return Ok(RouteInitData {
-                            current_idx: AtomicUsize::new(0),
-                            columns: columns.clone(),
-                            rows: vec![],
-                            error: Some(format!("Query execution failed: {}", e)),
-                        });
-                    }
+        let rows = match execute_postgres_query(&connection_string, &remote_query) {
+            Ok(result) => {
+                if let Some(err) = result.error {
+                    return Ok(RouteInitData {
+                        current_idx: AtomicUsize::new(0),
+                        columns: columns.clone(),
+                        rows: vec![],
+                        error: Some(err),
+                    });
                 }
+                result.rows
             }
             Err(e) => {
                 return Ok(RouteInitData {

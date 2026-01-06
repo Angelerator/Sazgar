@@ -27,14 +27,15 @@ duckdb-loadable-macros = "0.1.13"
 libduckdb-sys = { version = "1.4.3", features = ["loadable-extension"] }
 sysinfo = "0.32"
 lazy_static = "1.5"
-# PostgreSQL client for query routing (execute queries on remote PG servers)
-postgres = { version = "0.19", features = ["with-chrono-0_4"] }
+# PostgreSQL client for query routing (async with rustls TLS - no OpenSSL needed)
+tokio = { version = "1", features = ["rt-multi-thread", "net"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+# Pure Rust TLS - works in CI without OpenSSL
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio-postgres-rustls = "0.13"
+rustls-pki-types = "1"
+webpki-roots = "0.26"
 chrono = "0.4"
-# TLS support for secure PostgreSQL connections (enabled by default)
-postgres-native-tls = { version = "0.5", optional = true }
-native-tls = { version = "0.2", optional = true }
-# Vendored OpenSSL for CI builds (compiles OpenSSL from source)
-openssl = { version = "0.10", features = ["vendored"], optional = true }
 # For GPU monitoring (NVIDIA)
 nvml-wrapper = { version = "0.10", optional = true }
 # For network port scanning (Linux/macOS only)
@@ -43,5 +44,4 @@ netstat2 = "0.11"
 
 [features]
 default = []
-tls = ["postgres-native-tls", "native-tls", "openssl"]
 nvidia = ["nvml-wrapper"]
