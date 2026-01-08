@@ -136,7 +136,7 @@ SELECT * FROM sazgar_route(
 |---|-----------|----------|---------------|
 | 1 | `query` | Yes | Your SQL query (DuckDB syntax) |
 | 2 | `target` | Yes | Name you gave in `sazgar_target()` |
-| 3 | `condition` | Yes | For documentation (currently not evaluated, use `'TRUE'`) |
+| 3 | `condition` | Yes | SQL expression that evaluates to TRUE/FALSE |
 | 4 | `remote_query` | Yes | Custom query for remote, or `''` to use param 1 |
 
 > **Note:** All 4 parameters are required. You cannot omit `remote_query` - pass `''` to use the first parameter's query.
@@ -177,28 +177,68 @@ SELECT * FROM sazgar_route('SELECT * FROM bronze.events LIMIT 100', 'tavana', 'T
 SELECT * FROM sazgar_targets();
 ```
 
-### Recipe 4: Conditional Routing (Manual)
+### Recipe 4: Conditional Routing
 
-The `condition` parameter is stored for documentation but **not yet evaluated**. To implement conditional routing now, use a CTE or wrapper:
+The `condition` parameter is evaluated before executing the query. If FALSE, returns empty results.
 
 ```sql
--- Check resources first, then decide whether to route
-WITH should_route AS (
-  SELECT memory_usage_percent > 80 AS route_remote FROM sazgar_memory()
-)
+-- Route only when RAM usage is over 80%
 SELECT * FROM sazgar_route(
   'SELECT * FROM big_table',
   'remote_db',
-  'TRUE',
+  '(SELECT memory_usage_percent > 80 FROM sazgar_memory())',
   ''
-)
-WHERE (SELECT route_remote FROM should_route);
+);
 
--- Alternative: Use CASE in your application logic
--- If RAM > 80%, query remote; otherwise query local
+-- Route only when CPU usage is over 70%
+SELECT * FROM sazgar_route(
+  'SELECT * FROM compute_heavy',
+  'remote_db',
+  '(SELECT global_cpu_usage_percent > 70 FROM sazgar_system())',
+  ''
+);
+
+-- Route only when disk is almost full (over 90%)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM large_dataset',
+  'remote_db',
+  '(SELECT usage_percent > 90 FROM sazgar_disks() WHERE mount_point = ''/'')',
+  ''
+);
 ```
 
-> **Future:** The condition parameter will be evaluated automatically in a future version. For now, use the patterns above.
+### Recipe 5: Multi-Condition Routing
+
+Combine conditions with `AND` / `OR`:
+
+```sql
+-- Route when EITHER RAM OR CPU is high
+SELECT * FROM sazgar_route(
+  'SELECT * FROM analytics',
+  'remote_db',
+  '(SELECT memory_usage_percent > 75 FROM sazgar_memory()) 
+   OR (SELECT global_cpu_usage_percent > 80 FROM sazgar_system())',
+  ''
+);
+
+-- Route when BOTH RAM AND CPU are stressed
+SELECT * FROM sazgar_route(
+  'SELECT * FROM heavy_query',
+  'remote_db',
+  '(SELECT memory_usage_percent > 70 AND global_cpu_usage_percent > 60 FROM sazgar_system())',
+  ''
+);
+
+-- Route when available memory is below 4GB
+SELECT * FROM sazgar_route(
+  'SELECT * FROM big_table',
+  'remote_db',
+  '(SELECT available_memory < 4 FROM sazgar_memory(unit := ''GB''))',
+  ''
+);
+```
+
+> **Note:** Condition evaluation requires Python with duckdb package installed (`pip install duckdb`). If Python is unavailable, conditions default to TRUE.
 
 ---
 

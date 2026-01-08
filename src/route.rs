@@ -176,6 +176,67 @@ pub fn check_sqlglot() -> Result<String, String> {
     }
 }
 
+/// Evaluate a condition expression using DuckDB + Sazgar extension
+/// Returns true if condition evaluates to true, false otherwise
+pub fn evaluate_condition(condition: &str) -> Result<bool, String> {
+    let condition = condition.trim();
+    
+    // Handle simple TRUE/FALSE cases
+    if condition.eq_ignore_ascii_case("true") || condition == "1" {
+        return Ok(true);
+    }
+    if condition.eq_ignore_ascii_case("false") || condition == "0" || condition.is_empty() {
+        return Ok(false);
+    }
+    
+    // For complex conditions like "(SELECT memory_usage_percent > 80 FROM sazgar_memory())"
+    // We need to evaluate using DuckDB with the sazgar extension loaded
+    
+    // Build the query - wrap condition in SELECT if needed
+    let query = if condition.to_lowercase().starts_with("select") 
+                || condition.starts_with('(') {
+        format!("SELECT CAST({} AS BOOLEAN)", condition)
+    } else {
+        format!("SELECT CAST({} AS BOOLEAN)", condition)
+    };
+    
+    // Use Python with duckdb to evaluate (since sazgar extension needs to be loaded)
+    let escaped_query = query.replace('\\', "\\\\").replace('\'', "\\'");
+    let python_code = format!(
+        r#"
+import duckdb
+con = duckdb.connect()
+con.execute("INSTALL sazgar FROM community")
+con.execute("LOAD sazgar")
+result = con.execute("{}").fetchone()
+print("true" if result and result[0] else "false")
+"#,
+        escaped_query
+    );
+    
+    let result = Command::new("python3")
+        .args(["-c", &python_code])
+        .output()
+        .or_else(|_| Command::new("python").args(["-c", &python_code]).output());
+    
+    match result {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+            Ok(stdout == "true" || stdout == "1" || stdout == "t")
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // If evaluation fails, default to true (execute the query)
+            eprintln!("Condition evaluation warning: {}", stderr.trim());
+            Ok(true)
+        }
+        Err(_) => {
+            // If Python not available, default to true (execute the query)
+            Ok(true)
+        }
+    }
+}
+
 // ============================================================================
 // Connection String Parsing
 // ============================================================================
@@ -680,6 +741,7 @@ impl VTab for CustomRouteVTab {
         let connection_string = unsafe { (*bind).connection_string.clone() };
         let columns = unsafe { (*bind).columns.clone() };
         let bind_error = unsafe { (*bind).error.clone() };
+        let condition = unsafe { (*bind).condition.clone() };
         
         // If there was an error in bind, return it
         if let Some(err) = bind_error {
@@ -691,6 +753,26 @@ impl VTab for CustomRouteVTab {
                     pg_type: PgType::TEXT,
                 }],
                 rows: vec![DataRow { values: vec![err] }],
+                error: None,
+            });
+        }
+        
+        // Evaluate the condition - if FALSE, return empty results
+        let should_execute = match evaluate_condition(&condition) {
+            Ok(result) => result,
+            Err(e) => {
+                // On error, log and default to true (execute the query)
+                eprintln!("Condition evaluation error: {}. Defaulting to TRUE.", e);
+                true
+            }
+        };
+        
+        if !should_execute {
+            // Condition is FALSE - return empty result set
+            return Ok(RouteInitData {
+                current_idx: AtomicUsize::new(0),
+                columns,
+                rows: vec![],
                 error: None,
             });
         }
