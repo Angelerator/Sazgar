@@ -25,6 +25,7 @@
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Smart Routing](#smart-routing)
+  - [Resource-Based Routing Conditions](#resource-based-routing-conditions)
 - [Functions Reference](#functions-reference)
   - [sazgar_system()](#sazgar_systemunit--mb)
   - [sazgar_version()](#sazgar_version)
@@ -293,6 +294,120 @@ SELECT * FROM sazgar_route(
   'SELECT COUNT(*) as total, status FROM orders GROUP BY status'
 );
 -- Returns aggregated order counts by status!
+```
+
+### Resource-Based Routing Conditions
+
+Use Sazgar's system monitoring functions to build **intelligent routing conditions** based on real-time system resources. This enables dynamic query routing based on RAM, CPU, disk usage, and more!
+
+#### Check Resources Before Routing
+
+```sql
+-- View current system resources
+SELECT 
+  memory_usage_percent as ram_pct,
+  global_cpu_usage_percent as cpu_pct
+FROM sazgar_system();
+
+-- Check disk space
+SELECT mount_point, usage_percent as disk_pct 
+FROM sazgar_disks() 
+WHERE mount_point = '/';
+```
+
+#### Condition Examples
+
+The `condition` parameter accepts SQL expressions. While currently used for documentation (the query always executes), these patterns show how to express resource-based routing logic:
+
+```sql
+-- Route when RAM usage exceeds 80%
+SELECT * FROM sazgar_route(
+  'SELECT * FROM large_dataset LIMIT 1000',
+  'tavana',
+  '(SELECT memory_usage_percent > 80 FROM sazgar_memory())',
+  ''
+);
+
+-- Route when CPU usage is high (over 70%)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM compute_heavy_query()',
+  'remote_cluster',
+  '(SELECT global_cpu_usage_percent > 70 FROM sazgar_system())',
+  ''
+);
+
+-- Route when local disk is almost full (over 90%)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM parquet_scan(''/data/*.parquet'')',
+  'cloud_warehouse',
+  '(SELECT usage_percent > 90 FROM sazgar_disks() WHERE mount_point = ''/'')',
+  ''
+);
+```
+
+#### Combined Resource Conditions
+
+```sql
+-- Route when EITHER RAM is high OR disk is low
+SELECT * FROM sazgar_route(
+  'SELECT * FROM analytics.events',
+  'tavana',
+  '(SELECT memory_usage_percent > 75 FROM sazgar_memory()) 
+   OR (SELECT usage_percent > 85 FROM sazgar_disks() WHERE mount_point = ''/'')',
+  ''
+);
+
+-- Route when system is under heavy load (RAM + CPU both high)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM big_table',
+  'prod_pg',
+  '(SELECT memory_usage_percent > 70 AND global_cpu_usage_percent > 60 FROM sazgar_system())',
+  ''
+);
+
+-- Route large queries when available memory is below threshold (in GB)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM delta_scan(''az://bucket/data'')',
+  'tavana',
+  '(SELECT available_memory < 4 FROM sazgar_memory(unit := ''GB''))',
+  'SELECT * FROM bronze.data_table LIMIT 10000'
+);
+```
+
+#### Dynamic Routing Pattern with CTE
+
+```sql
+-- First check resources, then decide routing
+WITH system_check AS (
+  SELECT 
+    memory_usage_percent as ram,
+    global_cpu_usage_percent as cpu
+  FROM sazgar_system()
+)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM local_data',
+  'tavana',
+  CASE 
+    WHEN (SELECT ram FROM system_check) > 80 THEN 'TRUE'
+    WHEN (SELECT cpu FROM system_check) > 90 THEN 'TRUE'
+    ELSE 'FALSE'
+  END,
+  'SELECT * FROM remote_data'
+);
+```
+
+#### Condition Based on Data Size Estimation
+
+```sql
+-- Route if estimated data size exceeds available memory
+SELECT * FROM sazgar_route(
+  'SELECT * FROM parquet_scan(''/data/large_files/*.parquet'')',
+  'tavana',
+  '(SELECT e.estimated_gb > m.available_memory 
+    FROM sazgar_estimate(''/data/large_files/'') e, 
+         sazgar_memory(unit := ''GB'') m)',
+  'SELECT * FROM bronze.pre_aggregated_data'
+);
 ```
 
 ### Dialect Translation (via SQLGlot)
