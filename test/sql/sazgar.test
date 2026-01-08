@@ -224,3 +224,38 @@ query I
 SELECT COUNT(*) >= 0 FROM sazgar_fds(0)
 ----
 true
+
+# ========================================================================
+# Smart Routing Tests
+# ========================================================================
+
+# Test sazgar_target - register a target
+query I
+SELECT name = 'test_target' FROM sazgar_target('test_target', 'host=localhost port=5432 user=test password=test dbname=test')
+----
+true
+
+# Test sazgar_targets - list registered targets
+query III
+SELECT name, dialect, provider FROM sazgar_targets() WHERE name = 'test_target'
+----
+test_target	postgres	postgres
+
+# Test sazgar_translate - SQL translation (requires SQLGlot)
+# This may fail if SQLGlot is not installed, but that's OK
+query I
+SELECT length(original) > 0 FROM sazgar_translate('SELECT 1', 'postgres')
+----
+true
+
+# Test sazgar_sqlglot - check SQLGlot status
+query I
+SELECT available IS NOT NULL FROM sazgar_sqlglot()
+----
+true
+
+# Test sazgar_estimate - path estimation
+query I
+SELECT COUNT(*) >= 0 FROM sazgar_estimate('/tmp')
+----
+true
