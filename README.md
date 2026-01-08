@@ -187,6 +187,65 @@ SELECT * FROM sazgar_route(
   '(SELECT memory_usage_percent > 80 FROM sazgar_memory())',
   ''
 );
+
+-- Route when CPU usage is over 70%
+SELECT * FROM sazgar_route(
+  'SELECT * FROM compute_heavy',
+  'remote_db',
+  '(SELECT global_cpu_usage_percent > 70 FROM sazgar_system())',
+  ''
+);
+
+-- Route when disk is almost full (over 90%)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM large_dataset',
+  'remote_db',
+  '(SELECT usage_percent > 90 FROM sazgar_disks() WHERE mount_point = ''/'')',
+  ''
+);
+```
+
+### Recipe 5: Multi-Condition Routing
+
+Combine multiple conditions using `AND` / `OR`:
+
+```sql
+-- Route when EITHER RAM is high OR CPU is high
+SELECT * FROM sazgar_route(
+  'SELECT * FROM analytics_data',
+  'remote_db',
+  '(SELECT memory_usage_percent > 75 FROM sazgar_memory()) 
+   OR (SELECT global_cpu_usage_percent > 80 FROM sazgar_system())',
+  ''
+);
+
+-- Route when BOTH RAM AND CPU are stressed
+SELECT * FROM sazgar_route(
+  'SELECT * FROM heavy_query',
+  'remote_db',
+  '(SELECT memory_usage_percent > 70 AND global_cpu_usage_percent > 60 FROM sazgar_system())',
+  ''
+);
+
+-- Route when available memory is below 4GB
+SELECT * FROM sazgar_route(
+  'SELECT * FROM big_table',
+  'remote_db',
+  '(SELECT available_memory < 4 FROM sazgar_memory(unit := ''GB''))',
+  ''
+);
+
+-- Complex: RAM high OR (CPU high AND disk almost full)
+SELECT * FROM sazgar_route(
+  'SELECT * FROM resource_intensive',
+  'remote_db',
+  '(SELECT memory_usage_percent > 80 FROM sazgar_memory()) 
+   OR (
+     (SELECT global_cpu_usage_percent > 70 FROM sazgar_system()) 
+     AND (SELECT usage_percent > 85 FROM sazgar_disks() WHERE mount_point = ''/'')
+   )',
+  ''
+);
 ```
 
 ---
