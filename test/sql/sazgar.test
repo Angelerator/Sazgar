@@ -8,7 +8,7 @@ require sazgar
 query I
 SELECT version FROM sazgar_version()
 ----
-1.0.0
+1.1.0
 
 # Test sazgar_os - verify columns exist and have values
 query IIIII
