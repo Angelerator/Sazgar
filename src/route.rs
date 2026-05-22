@@ -832,27 +832,27 @@ impl VTab for CustomRouteVTab {
                 match col.duck_type {
                     DuckType::Boolean => {
                         let bool_val = value.eq_ignore_ascii_case("true") || value == "t" || value == "1";
-                        output.flat_vector(col_idx).as_mut_slice::<bool>()[i] = bool_val;
+                        unsafe { output.flat_vector(col_idx).as_mut_slice::<bool>()[i] = bool_val; }
                     }
                     DuckType::Smallint => {
                         let int_val: i16 = value.parse().unwrap_or(0);
-                        output.flat_vector(col_idx).as_mut_slice::<i16>()[i] = int_val;
+                        unsafe { output.flat_vector(col_idx).as_mut_slice::<i16>()[i] = int_val; }
                     }
                     DuckType::Integer => {
                         let int_val: i32 = value.parse().unwrap_or(0);
-                        output.flat_vector(col_idx).as_mut_slice::<i32>()[i] = int_val;
+                        unsafe { output.flat_vector(col_idx).as_mut_slice::<i32>()[i] = int_val; }
                     }
                     DuckType::Bigint => {
                         let int_val: i64 = value.parse().unwrap_or(0);
-                        output.flat_vector(col_idx).as_mut_slice::<i64>()[i] = int_val;
+                        unsafe { output.flat_vector(col_idx).as_mut_slice::<i64>()[i] = int_val; }
                     }
                     DuckType::Float => {
                         let float_val: f32 = value.parse().unwrap_or(0.0);
-                        output.flat_vector(col_idx).as_mut_slice::<f32>()[i] = float_val;
+                        unsafe { output.flat_vector(col_idx).as_mut_slice::<f32>()[i] = float_val; }
                     }
                     DuckType::Double => {
                         let float_val: f64 = value.parse().unwrap_or(0.0);
-                        output.flat_vector(col_idx).as_mut_slice::<f64>()[i] = float_val;
+                        unsafe { output.flat_vector(col_idx).as_mut_slice::<f64>()[i] = float_val; }
                     }
                     _ => {
                         // VARCHAR and other types - insert as string
@@ -1002,7 +1002,7 @@ impl VTab for SqlglotVTab {
             return Ok(());
         }
         
-        output.flat_vector(0).as_mut_slice::<bool>()[0] = init.available;
+        unsafe { output.flat_vector(0).as_mut_slice::<bool>()[0] = init.available; }
         output.flat_vector(1).insert(0, CString::new(init.version.clone())?);
         output.flat_vector(2).insert(0, CString::new(init.error.clone())?);
         output.set_len(1);
@@ -1134,8 +1134,8 @@ impl VTab for EstimateVTab {
             let e = &init.estimates[current + i];
             output.flat_vector(0).insert(i, CString::new(e.path.clone())?);
             output.flat_vector(1).insert(i, CString::new(e.path_type.clone())?);
-            output.flat_vector(2).as_mut_slice::<f64>()[i] = e.estimated_gb;
-            output.flat_vector(3).as_mut_slice::<u64>()[i] = e.file_count;
+            unsafe { output.flat_vector(2).as_mut_slice::<f64>()[i] = e.estimated_gb; }
+            unsafe { output.flat_vector(3).as_mut_slice::<u64>()[i] = e.file_count; }
             output.flat_vector(4).insert(i, CString::new(e.format.clone())?);
         }
         init.current.store(current + batch, Ordering::Relaxed);

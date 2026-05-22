@@ -195,10 +195,10 @@ impl VTab for CpuVTab {
         for i in 0..batch_size {
             let cpu = &init_data.cpu_data[current + i];
             
-            output.flat_vector(0).as_mut_slice::<u64>()[i] = cpu.core_id as u64;
+            unsafe { output.flat_vector(0).as_mut_slice::<u64>()[i] = cpu.core_id as u64; }
             output.flat_vector(1).insert(i, CString::new(cpu.name.clone())?);
-            output.flat_vector(2).as_mut_slice::<f32>()[i] = cpu.usage_percent;
-            output.flat_vector(3).as_mut_slice::<u64>()[i] = cpu.frequency_mhz;
+            unsafe { output.flat_vector(2).as_mut_slice::<f32>()[i] = cpu.usage_percent; }
+            unsafe { output.flat_vector(3).as_mut_slice::<u64>()[i] = cpu.frequency_mhz; }
             output.flat_vector(4).insert(i, CString::new(cpu.brand.clone())?);
             output.flat_vector(5).insert(i, CString::new(cpu.vendor_id.clone())?);
             output.flat_vector(6).insert(i, CString::new(init_data.byte_order.clone())?);
@@ -318,15 +318,15 @@ impl VTab for MemoryVTab {
         };
         
         output.flat_vector(0).insert(0, CString::new(unit.name())?);
-        output.flat_vector(1).as_mut_slice::<f64>()[0] = unit.convert(init_data.total_memory);
-        output.flat_vector(2).as_mut_slice::<f64>()[0] = unit.convert(init_data.used_memory);
-        output.flat_vector(3).as_mut_slice::<f64>()[0] = unit.convert(init_data.free_memory);
-        output.flat_vector(4).as_mut_slice::<f64>()[0] = unit.convert(init_data.available_memory);
-        output.flat_vector(5).as_mut_slice::<f32>()[0] = usage_percent;
-        output.flat_vector(6).as_mut_slice::<f64>()[0] = unit.convert(init_data.total_swap);
-        output.flat_vector(7).as_mut_slice::<f64>()[0] = unit.convert(init_data.used_swap);
-        output.flat_vector(8).as_mut_slice::<f64>()[0] = unit.convert(init_data.free_swap);
-        output.flat_vector(9).as_mut_slice::<f32>()[0] = swap_usage_percent;
+        unsafe { output.flat_vector(1).as_mut_slice::<f64>()[0] = unit.convert(init_data.total_memory); }
+        unsafe { output.flat_vector(2).as_mut_slice::<f64>()[0] = unit.convert(init_data.used_memory); }
+        unsafe { output.flat_vector(3).as_mut_slice::<f64>()[0] = unit.convert(init_data.free_memory); }
+        unsafe { output.flat_vector(4).as_mut_slice::<f64>()[0] = unit.convert(init_data.available_memory); }
+        unsafe { output.flat_vector(5).as_mut_slice::<f32>()[0] = usage_percent; }
+        unsafe { output.flat_vector(6).as_mut_slice::<f64>()[0] = unit.convert(init_data.total_swap); }
+        unsafe { output.flat_vector(7).as_mut_slice::<f64>()[0] = unit.convert(init_data.used_swap); }
+        unsafe { output.flat_vector(8).as_mut_slice::<f64>()[0] = unit.convert(init_data.free_swap); }
+        unsafe { output.flat_vector(9).as_mut_slice::<f32>()[0] = swap_usage_percent; }
         
         output.set_len(1);
         Ok(())
@@ -417,9 +417,9 @@ impl VTab for OsVTab {
         output.flat_vector(3).insert(0, CString::new(init_data.hostname.clone())?);
         output.flat_vector(4).insert(0, CString::new(init_data.architecture.clone())?);
         output.flat_vector(5).insert(0, CString::new(init_data.distribution_id.clone())?);
-        output.flat_vector(6).as_mut_slice::<u64>()[0] = init_data.uptime_seconds;
-        output.flat_vector(7).as_mut_slice::<u64>()[0] = init_data.boot_time;
-        output.flat_vector(8).as_mut_slice::<u64>()[0] = init_data.process_count as u64;
+        unsafe { output.flat_vector(6).as_mut_slice::<u64>()[0] = init_data.uptime_seconds; }
+        unsafe { output.flat_vector(7).as_mut_slice::<u64>()[0] = init_data.boot_time; }
+        unsafe { output.flat_vector(8).as_mut_slice::<u64>()[0] = init_data.process_count as u64; }
         
         output.set_len(1);
         Ok(())
@@ -555,16 +555,16 @@ impl VTab for SystemVTab {
         output.flat_vector(1).insert(0, CString::new(init_data.os_version.clone())?);
         output.flat_vector(2).insert(0, CString::new(init_data.hostname.clone())?);
         output.flat_vector(3).insert(0, CString::new(init_data.architecture.clone())?);
-        output.flat_vector(4).as_mut_slice::<u64>()[0] = init_data.cpu_count;
-        output.flat_vector(5).as_mut_slice::<u64>()[0] = init_data.physical_core_count;
+        unsafe { output.flat_vector(4).as_mut_slice::<u64>()[0] = init_data.cpu_count; }
+        unsafe { output.flat_vector(5).as_mut_slice::<u64>()[0] = init_data.physical_core_count; }
         output.flat_vector(6).insert(0, CString::new(init_data.cpu_brand.clone())?);
-        output.flat_vector(7).as_mut_slice::<f32>()[0] = init_data.global_cpu_usage;
-        output.flat_vector(8).as_mut_slice::<f64>()[0] = unit.convert(init_data.total_memory);
-        output.flat_vector(9).as_mut_slice::<f64>()[0] = unit.convert(init_data.used_memory);
-        output.flat_vector(10).as_mut_slice::<f64>()[0] = unit.convert(init_data.available_memory);
-        output.flat_vector(11).as_mut_slice::<f32>()[0] = init_data.memory_usage_percent;
-        output.flat_vector(12).as_mut_slice::<u64>()[0] = init_data.uptime_seconds;
-        output.flat_vector(13).as_mut_slice::<u64>()[0] = init_data.process_count;
+        unsafe { output.flat_vector(7).as_mut_slice::<f32>()[0] = init_data.global_cpu_usage; }
+        unsafe { output.flat_vector(8).as_mut_slice::<f64>()[0] = unit.convert(init_data.total_memory); }
+        unsafe { output.flat_vector(9).as_mut_slice::<f64>()[0] = unit.convert(init_data.used_memory); }
+        unsafe { output.flat_vector(10).as_mut_slice::<f64>()[0] = unit.convert(init_data.available_memory); }
+        unsafe { output.flat_vector(11).as_mut_slice::<f32>()[0] = init_data.memory_usage_percent; }
+        unsafe { output.flat_vector(12).as_mut_slice::<u64>()[0] = init_data.uptime_seconds; }
+        unsafe { output.flat_vector(13).as_mut_slice::<u64>()[0] = init_data.process_count; }
         output.flat_vector(14).insert(0, CString::new(unit.name())?);
         
         output.set_len(1);
@@ -695,11 +695,11 @@ impl VTab for DisksVTab {
             output.flat_vector(1).insert(i, CString::new(disk.mount_point.clone())?);
             output.flat_vector(2).insert(i, CString::new(disk.file_system.clone())?);
             output.flat_vector(3).insert(i, CString::new(unit.name())?);
-            output.flat_vector(4).as_mut_slice::<f64>()[i] = unit.convert(disk.total_bytes);
-            output.flat_vector(5).as_mut_slice::<f64>()[i] = unit.convert(disk.available_bytes);
-            output.flat_vector(6).as_mut_slice::<f64>()[i] = unit.convert(used_bytes);
-            output.flat_vector(7).as_mut_slice::<f32>()[i] = usage_percent;
-            output.flat_vector(8).as_mut_slice::<bool>()[i] = disk.is_removable;
+            unsafe { output.flat_vector(4).as_mut_slice::<f64>()[i] = unit.convert(disk.total_bytes); }
+            unsafe { output.flat_vector(5).as_mut_slice::<f64>()[i] = unit.convert(disk.available_bytes); }
+            unsafe { output.flat_vector(6).as_mut_slice::<f64>()[i] = unit.convert(used_bytes); }
+            unsafe { output.flat_vector(7).as_mut_slice::<f32>()[i] = usage_percent; }
+            unsafe { output.flat_vector(8).as_mut_slice::<bool>()[i] = disk.is_removable; }
             output.flat_vector(9).insert(i, CString::new(disk.kind.clone())?);
         }
         
@@ -822,12 +822,12 @@ impl VTab for NetworkVTab {
             
             output.flat_vector(0).insert(i, CString::new(net.interface_name.clone())?);
             output.flat_vector(1).insert(i, CString::new(net.mac_address.clone())?);
-            output.flat_vector(2).as_mut_slice::<f64>()[i] = unit.convert(net.rx_bytes);
-            output.flat_vector(3).as_mut_slice::<f64>()[i] = unit.convert(net.tx_bytes);
-            output.flat_vector(4).as_mut_slice::<u64>()[i] = net.rx_packets;
-            output.flat_vector(5).as_mut_slice::<u64>()[i] = net.tx_packets;
-            output.flat_vector(6).as_mut_slice::<u64>()[i] = net.rx_errors;
-            output.flat_vector(7).as_mut_slice::<u64>()[i] = net.tx_errors;
+            unsafe { output.flat_vector(2).as_mut_slice::<f64>()[i] = unit.convert(net.rx_bytes); }
+            unsafe { output.flat_vector(3).as_mut_slice::<f64>()[i] = unit.convert(net.tx_bytes); }
+            unsafe { output.flat_vector(4).as_mut_slice::<u64>()[i] = net.rx_packets; }
+            unsafe { output.flat_vector(5).as_mut_slice::<u64>()[i] = net.tx_packets; }
+            unsafe { output.flat_vector(6).as_mut_slice::<u64>()[i] = net.rx_errors; }
+            unsafe { output.flat_vector(7).as_mut_slice::<u64>()[i] = net.tx_errors; }
             output.flat_vector(8).insert(i, CString::new(unit.name())?);
         }
         
@@ -980,15 +980,15 @@ impl VTab for ProcessesVTab {
                 0.0
             };
             
-            output.flat_vector(0).as_mut_slice::<u32>()[i] = proc.pid;
+            unsafe { output.flat_vector(0).as_mut_slice::<u32>()[i] = proc.pid; }
             output.flat_vector(1).insert(i, CString::new(proc.name.clone())?);
             output.flat_vector(2).insert(i, CString::new(proc.exe_path.clone())?);
             output.flat_vector(3).insert(i, CString::new(proc.status.clone())?);
-            output.flat_vector(4).as_mut_slice::<f32>()[i] = proc.cpu_percent;
-            output.flat_vector(5).as_mut_slice::<f64>()[i] = unit.convert(proc.memory_bytes);
-            output.flat_vector(6).as_mut_slice::<f32>()[i] = memory_percent;
-            output.flat_vector(7).as_mut_slice::<u64>()[i] = proc.start_time;
-            output.flat_vector(8).as_mut_slice::<u64>()[i] = proc.run_time;
+            unsafe { output.flat_vector(4).as_mut_slice::<f32>()[i] = proc.cpu_percent; }
+            unsafe { output.flat_vector(5).as_mut_slice::<f64>()[i] = unit.convert(proc.memory_bytes); }
+            unsafe { output.flat_vector(6).as_mut_slice::<f32>()[i] = memory_percent; }
+            unsafe { output.flat_vector(7).as_mut_slice::<u64>()[i] = proc.start_time; }
+            unsafe { output.flat_vector(8).as_mut_slice::<u64>()[i] = proc.run_time; }
             output.flat_vector(9).insert(i, CString::new(proc.user.clone())?);
             output.flat_vector(10).insert(i, CString::new(unit.name())?);
         }
@@ -1055,9 +1055,9 @@ impl VTab for LoadVTab {
             return Ok(());
         }
         
-        output.flat_vector(0).as_mut_slice::<f64>()[0] = init_data.load_1;
-        output.flat_vector(1).as_mut_slice::<f64>()[0] = init_data.load_5;
-        output.flat_vector(2).as_mut_slice::<f64>()[0] = init_data.load_15;
+        unsafe { output.flat_vector(0).as_mut_slice::<f64>()[0] = init_data.load_1; }
+        unsafe { output.flat_vector(1).as_mut_slice::<f64>()[0] = init_data.load_5; }
+        unsafe { output.flat_vector(2).as_mut_slice::<f64>()[0] = init_data.load_15; }
         
         output.set_len(1);
         Ok(())
@@ -1223,9 +1223,9 @@ impl VTab for ComponentsVTab {
             let comp = &init_data.component_data[current + i];
             
             output.flat_vector(0).insert(i, CString::new(comp.label.clone())?);
-            output.flat_vector(1).as_mut_slice::<f32>()[i] = comp.temperature;
-            output.flat_vector(2).as_mut_slice::<f32>()[i] = comp.max_temperature;
-            output.flat_vector(3).as_mut_slice::<f32>()[i] = comp.critical_temperature.unwrap_or(0.0);
+            unsafe { output.flat_vector(1).as_mut_slice::<f32>()[i] = comp.temperature; }
+            unsafe { output.flat_vector(2).as_mut_slice::<f32>()[i] = comp.max_temperature; }
+            unsafe { output.flat_vector(3).as_mut_slice::<f32>()[i] = comp.critical_temperature.unwrap_or(0.0); }
         }
         
         init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
@@ -1387,12 +1387,12 @@ impl VTab for UptimeVTab {
         
         let boot_time = System::boot_time();
         
-        output.flat_vector(0).as_mut_slice::<i64>()[0] = uptime_secs as i64;
-        output.flat_vector(1).as_mut_slice::<f64>()[0] = uptime_mins;
-        output.flat_vector(2).as_mut_slice::<f64>()[0] = uptime_hrs;
-        output.flat_vector(3).as_mut_slice::<f64>()[0] = uptime_days;
+        unsafe { output.flat_vector(0).as_mut_slice::<i64>()[0] = uptime_secs as i64; }
+        unsafe { output.flat_vector(1).as_mut_slice::<f64>()[0] = uptime_mins; }
+        unsafe { output.flat_vector(2).as_mut_slice::<f64>()[0] = uptime_hrs; }
+        unsafe { output.flat_vector(3).as_mut_slice::<f64>()[0] = uptime_days; }
         output.flat_vector(4).insert(0, CString::new(formatted)?);
-        output.flat_vector(5).as_mut_slice::<i64>()[0] = boot_time as i64;
+        unsafe { output.flat_vector(5).as_mut_slice::<i64>()[0] = boot_time as i64; }
         
         output.set_len(1);
         Ok(())
@@ -1558,11 +1558,11 @@ impl VTab for PortsVTab {
             
             output.flat_vector(0).insert(i, CString::new(port.protocol.clone())?);
             output.flat_vector(1).insert(i, CString::new(port.local_address.clone())?);
-            output.flat_vector(2).as_mut_slice::<i32>()[i] = port.local_port as i32;
+            unsafe { output.flat_vector(2).as_mut_slice::<i32>()[i] = port.local_port as i32; }
             output.flat_vector(3).insert(i, CString::new(port.remote_address.clone())?);
-            output.flat_vector(4).as_mut_slice::<i32>()[i] = port.remote_port as i32;
+            unsafe { output.flat_vector(4).as_mut_slice::<i32>()[i] = port.remote_port as i32; }
             output.flat_vector(5).insert(i, CString::new(port.state.clone())?);
-            output.flat_vector(6).as_mut_slice::<i32>()[i] = port.pid.unwrap_or(0) as i32;
+            unsafe { output.flat_vector(6).as_mut_slice::<i32>()[i] = port.pid.unwrap_or(0) as i32; }
             output.flat_vector(7).insert(i, CString::new(port.process_name.clone())?);
         }
         
@@ -1700,16 +1700,16 @@ impl VTab for GpuVTab {
         for i in 0..batch_size {
             let gpu = &init_data.gpu_data[current + i];
             
-            output.flat_vector(0).as_mut_slice::<i32>()[i] = gpu.index as i32;
+            unsafe { output.flat_vector(0).as_mut_slice::<i32>()[i] = gpu.index as i32; }
             output.flat_vector(1).insert(i, CString::new(gpu.name.clone())?);
             output.flat_vector(2).insert(i, CString::new(gpu.driver_version.clone())?);
-            output.flat_vector(3).as_mut_slice::<i64>()[i] = gpu.memory_total_mb as i64;
-            output.flat_vector(4).as_mut_slice::<i64>()[i] = gpu.memory_used_mb as i64;
-            output.flat_vector(5).as_mut_slice::<i64>()[i] = gpu.memory_free_mb as i64;
-            output.flat_vector(6).as_mut_slice::<i32>()[i] = gpu.temperature_celsius.unwrap_or(0) as i32;
-            output.flat_vector(7).as_mut_slice::<i32>()[i] = gpu.power_usage_watts.unwrap_or(0) as i32;
-            output.flat_vector(8).as_mut_slice::<i32>()[i] = gpu.utilization_gpu_percent.unwrap_or(0) as i32;
-            output.flat_vector(9).as_mut_slice::<i32>()[i] = gpu.utilization_memory_percent.unwrap_or(0) as i32;
+            unsafe { output.flat_vector(3).as_mut_slice::<i64>()[i] = gpu.memory_total_mb as i64; }
+            unsafe { output.flat_vector(4).as_mut_slice::<i64>()[i] = gpu.memory_used_mb as i64; }
+            unsafe { output.flat_vector(5).as_mut_slice::<i64>()[i] = gpu.memory_free_mb as i64; }
+            unsafe { output.flat_vector(6).as_mut_slice::<i32>()[i] = gpu.temperature_celsius.unwrap_or(0) as i32; }
+            unsafe { output.flat_vector(7).as_mut_slice::<i32>()[i] = gpu.power_usage_watts.unwrap_or(0) as i32; }
+            unsafe { output.flat_vector(8).as_mut_slice::<i32>()[i] = gpu.utilization_gpu_percent.unwrap_or(0) as i32; }
+            unsafe { output.flat_vector(9).as_mut_slice::<i32>()[i] = gpu.utilization_memory_percent.unwrap_or(0) as i32; }
         }
         
         init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
@@ -1794,10 +1794,10 @@ impl VTab for SwapVTab {
         
         let unit = init_data.unit;
         
-        output.flat_vector(0).as_mut_slice::<f64>()[0] = unit.convert(total_swap);
-        output.flat_vector(1).as_mut_slice::<f64>()[0] = unit.convert(used_swap);
-        output.flat_vector(2).as_mut_slice::<f64>()[0] = unit.convert(free_swap);
-        output.flat_vector(3).as_mut_slice::<f64>()[0] = usage_percent;
+        unsafe { output.flat_vector(0).as_mut_slice::<f64>()[0] = unit.convert(total_swap); }
+        unsafe { output.flat_vector(1).as_mut_slice::<f64>()[0] = unit.convert(used_swap); }
+        unsafe { output.flat_vector(2).as_mut_slice::<f64>()[0] = unit.convert(free_swap); }
+        unsafe { output.flat_vector(3).as_mut_slice::<f64>()[0] = usage_percent; }
         output.flat_vector(4).insert(0, CString::new(unit.name())?);
         
         output.set_len(1);
@@ -1892,9 +1892,9 @@ impl VTab for CpuCoresVTab {
         for i in 0..batch_size {
             let core = &init_data.core_data[current + i];
             
-            output.flat_vector(0).as_mut_slice::<i32>()[i] = core.core_id as i32;
-            output.flat_vector(1).as_mut_slice::<f32>()[i] = core.usage_percent;
-            output.flat_vector(2).as_mut_slice::<i64>()[i] = core.frequency_mhz as i64;
+            unsafe { output.flat_vector(0).as_mut_slice::<i32>()[i] = core.core_id as i32; }
+            unsafe { output.flat_vector(1).as_mut_slice::<f32>()[i] = core.usage_percent; }
+            unsafe { output.flat_vector(2).as_mut_slice::<i64>()[i] = core.frequency_mhz as i64; }
             output.flat_vector(3).insert(i, CString::new(core.vendor.clone())?);
             output.flat_vector(4).insert(i, CString::new(core.brand.clone())?);
         }
@@ -2011,9 +2011,9 @@ impl VTab for FdsVTab {
         for i in 0..batch_size {
             let fd = &init_data.fd_data[current + i];
             
-            output.flat_vector(0).as_mut_slice::<i32>()[i] = fd.pid as i32;
+            unsafe { output.flat_vector(0).as_mut_slice::<i32>()[i] = fd.pid as i32; }
             output.flat_vector(1).insert(i, CString::new(fd.process_name.clone())?);
-            output.flat_vector(2).as_mut_slice::<i32>()[i] = fd.fd_count as i32;
+            unsafe { output.flat_vector(2).as_mut_slice::<i32>()[i] = fd.fd_count as i32; }
         }
         
         init_data.current_idx.store(current + batch_size, Ordering::Relaxed);
