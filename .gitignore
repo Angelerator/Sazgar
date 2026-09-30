@@ -4,5 +4,6 @@ configure
 .idea
 duckdb_unittest_tempdir
 /test/bin
-venv.cursor/
+venv
+.cursor/
 .vscode/
